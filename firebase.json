@@ -1,4 +1,8 @@
 {
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
   "hosting": {
     "site": "school-wgbt-monitor-30de2",
     "public": "frontend/dist",
@@ -9,9 +13,9 @@
     ],
     "rewrites": [
       {
-        "source": "/api/buildics",
+        "source": "/api/**",
         "function": {
-          "functionId": "buildicsProxy",
+          "functionId": "api",
           "region": "asia-northeast1"
         }
       },
@@ -24,5 +28,21 @@
   "functions": {
     "source": "functions",
     "runtime": "nodejs22"
+  },
+  "emulators": {
+    "singleProjectMode": true,
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    }
   }
 }

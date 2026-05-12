@@ -1,0 +1,95 @@
+{
+  "orgId": "default",
+  "title": "北里地区 熱中症監視システム",
+  "subtitle": "Kitasato Area WBGT Monitoring — Powered by BUILDICS",
+  "deviceMappings": [
+    { "deviceId": "350976658106130", "facilityId": 1 }
+  ],
+  "mockFacilities": [
+    {
+      "id": 1,
+      "name": "北里小学校グランド",
+      "wbgt": 31.2,
+      "level": "厳重警戒",
+      "wbgtNext": 33.0,
+      "weather": "晴れ",
+      "weatherIcon": "☀️",
+      "temp": 32.5,
+      "humidity": 68,
+      "updated": "10:15",
+      "isMock": true
+    },
+    {
+      "id": 2,
+      "name": "北里保育園",
+      "wbgt": 29.0,
+      "level": "警戒",
+      "wbgtNext": 30.4,
+      "weather": "晴れ時々曇り",
+      "weatherIcon": "⛅",
+      "temp": 31.0,
+      "humidity": 70,
+      "updated": "10:14",
+      "isMock": true
+    },
+    {
+      "id": 3,
+      "name": "北里幼稚園",
+      "wbgt": 28.5,
+      "level": "警戒",
+      "wbgtNext": 29.8,
+      "weather": "曇り",
+      "weatherIcon": "☁️",
+      "temp": 30.2,
+      "humidity": 69,
+      "updated": "10:13",
+      "isMock": true
+    },
+    {
+      "id": 4,
+      "name": "北里小学校体育館",
+      "wbgt": 28.0,
+      "level": "警戒",
+      "wbgtNext": 29.2,
+      "weather": "屋内",
+      "weatherIcon": "🏫",
+      "temp": 30.0,
+      "humidity": 66,
+      "updated": "10:12",
+      "isMock": true
+    },
+    {
+      "id": 5,
+      "name": "くじら保育園",
+      "wbgt": 27.0,
+      "level": "注意",
+      "wbgtNext": 28.1,
+      "weather": "曇り",
+      "weatherIcon": "☁️",
+      "temp": 29.3,
+      "humidity": 64,
+      "updated": "10:11",
+      "isMock": true
+    }
+  ],
+  "anomalySensor": { "name": "北門付近センサー", "lastSeen": "09:42" },
+  "hourlyForecastDemo": [
+    { "time": "10:00", "wbgt": 31.2, "level": "厳重警戒" },
+    { "time": "11:00", "wbgt": 32.5, "level": "危険" },
+    { "time": "12:00", "wbgt": 33.4, "level": "危険" },
+    { "time": "13:00", "wbgt": 32.8, "level": "危険" }
+  ],
+  "weatherForecastDemo": [
+    { "time": "11:00", "weather": "晴れ", "weatherIcon": "☀️", "temp": 33, "humidity": 70 },
+    { "time": "12:00", "weather": "晴れ", "weatherIcon": "☀️", "temp": 34, "humidity": 72 },
+    { "time": "13:00", "weather": "晴れ時々曇り", "weatherIcon": "⛅", "temp": 33, "humidity": 71 }
+  ],
+  "polling": {
+    "intervalMs": 60000,
+    "historyHours": 6,
+    "staleMinutes": 10,
+    "chunkSize": 40,
+    "maxRetries": 3
+  },
+  "showDemoForecast": false
+}
