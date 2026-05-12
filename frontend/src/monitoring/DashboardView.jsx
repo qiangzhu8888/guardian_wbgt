@@ -31,8 +31,8 @@ export function DashboardView({
   loading,
   error,
   lastFetched,
-  onSelectFacility,
   anomalySensor,
+  onSelectFacility,
 }) {
   const topFacility = facilities.find((f) => f.level !== '通信異常' && f.level !== 'ほぼ安全');
 
@@ -145,8 +145,9 @@ export function DashboardView({
             <button
               key={f.id}
               type="button"
-              onClick={() => onSelectFacility(f)}
-              className={`text-left rounded-xl bg-white shadow-card border border-slate-100/90 ${style.cardBorder} p-4 hover:shadow-soft transition-shadow duration-200 cursor-pointer w-full`}
+              aria-label={`${f.name}の詳細を開く`}
+              onClick={() => onSelectFacility?.(f)}
+              className={`text-left rounded-xl bg-white shadow-card border border-slate-100/90 ${style.cardBorder} p-4 w-full transition-transform hover:shadow-md hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 touch-manipulation active:scale-[0.99]`}
             >
               <div className="flex items-start justify-between mb-2">
                 <div className="flex-1 min-w-0 mr-2">
@@ -181,28 +182,32 @@ export function DashboardView({
 
               <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                 <span className="text-xs text-gray-400">最終更新 {f.updated}</span>
-                <span className="text-xs text-slate-500 font-medium">詳細 →</span>
+                {onSelectFacility ? (
+                  <span className="text-xs font-semibold text-sky-600">詳細 →</span>
+                ) : null}
               </div>
             </button>
           );
         })}
 
-        <div className="rounded-xl bg-white border border-slate-100 shadow-soft border-l-4 border-l-slate-400 p-4 opacity-75">
-          <div className="flex items-start justify-between mb-2">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">⚡ センサー異常</p>
-              <h3 className="font-bold text-gray-600 text-sm">{anomalySensor?.name}</h3>
+        {anomalySensor?.name ? (
+          <div className="rounded-xl bg-white border border-slate-100 shadow-soft border-l-4 border-l-slate-400 p-4 opacity-75">
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">⚡ センサー異常</p>
+                <h3 className="font-bold text-gray-600 text-sm">{anomalySensor.name}</h3>
+              </div>
+              <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-300">
+                通信異常
+              </span>
             </div>
-            <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-300">
-              通信異常
-            </span>
+            <p className="text-4xl font-extrabold text-gray-300 leading-none mb-3">--.-</p>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+              <span className="text-xs text-gray-400">最終受信 {anomalySensor?.lastSeen}</span>
+              <span className="text-xs text-gray-400">データなし</span>
+            </div>
           </div>
-          <p className="text-4xl font-extrabold text-gray-300 leading-none mb-3">--.-</p>
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-            <span className="text-xs text-gray-400">最終受信 {anomalySensor?.lastSeen}</span>
-            <span className="text-xs text-gray-400">データなし</span>
-          </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="rounded-xl bg-white border border-slate-100 shadow-soft p-4 sm:p-5">

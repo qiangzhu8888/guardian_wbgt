@@ -1,4 +1,6 @@
-# マルチテナント（URL `/o/:orgSlug`）
+# マルチテナント（URL `/tenant/:orgSlug`）
+
+旧パス `/o/:orgSlug` はフロントで `/tenant/:orgSlug` へリダイレクトされます。
 
 ## データ
 
@@ -9,7 +11,7 @@
   - **公開ダッシュボード用**（任意・`GET /api/public/config` にマージ、シークレットは含めない）
     - `dashboardTitle` / `dashboardSubtitle` → 応答の `title` / `subtitle`
     - `themePrimary`（`#RRGGBB`）→ `themePrimary`
-    - `logoUrl`（HTTPS・BFF の許可ホストのみ）→ `logoUrl`
+    - `logoUrl`（HTTPS・BFF の許可ホストのみ）→ `logoUrl`。ファイルアップロード時は **`firebaseStorageDownloadTokens` 付き**の `firebasestorage.googleapis.com` URL になります（従来の `storage.googleapis.com` 直リンクも可）。
   - **BUILDICS**（任意・**公開 API には出さない**）
     - `buildicsApiKey` … その org の `POST /api/buildics` で使用。**未設定時は** Functions の環境変数 `BUILDICS_API_KEY` にフォールバック
 
@@ -18,7 +20,8 @@
 管理者（`users.role === admin`・自 `orgId`）は `**/admin/org-settings`** から以下を更新できます。
 
 - `GET /api/admin/org-settings` … 上記フィールドの編集用の値（`buildicsApiKey` はフルでは返さず、`buildicsApiKeyConfigured` など）
-- `PATCH /api/admin/org-settings` … ダッシュボード表示・ロゴ URL・組織専用 BUILDICS キーの設定（キーに空文字を送ると組織キー削除＝環境変数フォールバック）
+- `POST /api/admin/org-logo` … ロゴ画像（PNG / JPEG / WebP / SVG、最大 2MB）を **Bearer 認証付きで生ボディ** 送信。Storage に保存し `orgs.logoUrl` を更新
+- `PATCH /api/admin/org-settings` … ダッシュボード表示・`logoUrl` 手動上書き（HTTPS 許可 URL のみ）・ロゴ削除（`logoUrl` に空文字）・組織専用 BUILDICS キー（キーに空文字を送ると組織キー削除＝環境変数フォールバック）。ロゴを置き換え・削除した際、当アプリがアップロードした Storage オブジェクトは可能な範囲で削除します。
 
 `slug` の変更はマルチテナントの一意制約のため、当面 Firestore コンソールまたは別運用で行ってください。
 
@@ -51,7 +54,10 @@ cd functions && npm run seed:admin
 | ---- | --------------------------- | ---------------------------------------------------------------------------------------- |
 | GET  | `/api/admin/platform/orgs`  | 全 `orgs` の一覧（`buildicsApiKey` は含めない）                                                     |
 | POST | `/api/admin/platform/orgs`  | 組織作成。ボディ: `orgId`, `slug`, `name`（任意）                                                    |
+| GET  | `/api/admin/platform/users` | 全 `users` の一覧（`passwordHash` は含めない） |
 | POST | `/api/admin/platform/users` | 指定 `orgId` に管理者等を作成。ボディ: `email`, `password`（8文字以上）, `orgId`, `role`（`admin` / `viewer`） |
+| PATCH | `/api/admin/platform/users/:userId` | 更新。ボディの任意項目: `email`, `password`（8文字以上）, `orgId`, `role`（`admin` / `viewer`）。**`superadmin`** は `email`・`password` のみ変更可 |
+| DELETE | `/api/admin/platform/users/:userId` | 削除。自分自身・最後の `superadmin` は不可 |
 
 
 **通常の `admin`** は上記プラットフォーム API にはアクセスできません（403）。  
@@ -80,9 +86,9 @@ BFF は `logoUrl` を検証します。既定で `storage.googleapis.com`・`fir
 ## 新規テナント追加手順
 
 1. `orgId` を決める（例: `kitasato-2025`）
-2. `orgs` にドキュメント ID `kitasato-2025`、フィールド `slug: "kitasato"`（URL は `/o/kitasato`）
+2. `orgs` にドキュメント ID `kitasato-2025`、フィールド `slug: "kitasato"`（URL は `/tenant/kitasato`）
 3. その `orgId` で `facilities` / `devices` / 管理者 `users.orgId` を登録
-4. 監視の URL を `https://<host>/o/kitasato` として共有
+4. 監視の URL を `https://<host>/tenant/kitasato` として共有
 
 ## 環境変数
 
@@ -93,7 +99,7 @@ BFF は `logoUrl` を検証します。既定で `storage.googleapis.com`・`fir
 | `DEFAULT_ORG_SLUG`（Functions）       | `orgs` 未登録時に許可する公開 URL スラッグ（通常 `default`）                      |
 | `BUILDICS_API_KEY`（Functions）       | 組織ドキュメントに `buildicsApiKey` が無いときの **共通フォールバック**（BUILDICS プロキシ） |
 | `LOGO_URL_ALLOWED_HOSTS`（Functions） | ロゴ `logoUrl` の追加許可ホスト（カンマ区切り。任意）                               |
-| `VITE_DEFAULT_ORG_SLUG`（Frontend）   | `/` アクセス時の `Navigate` 先 `/o/<slug>`                            |
+| `VITE_DEFAULT_ORG_SLUG`（Frontend）   | `/` アクセス時の `Navigate` 先 `/tenant/<slug>`                            |
 
 
 ## 静的 `public/config/facilities.json`

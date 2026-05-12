@@ -78,6 +78,27 @@ firebase init emulators
 - 利用するエミュレータとして **Functions** / **Firestore** / （必要なら）**Hosting** などにチェック
 - ポートは `firebase.json` の値（Functions `5001`、Firestore `8080`、Hosting `5000`、UI `4000`）と揃えると、`frontend` の Vite プロキシと整合しやすいです
 
+### エミュレータへ網羅テストデータ（任意）
+
+1. プロジェクトルートで Firestore エミュレータを起動します（例: `firebase emulators:start --only firestore`）。
+2. **Firestore のみ**のときはポート **8080**（`firebase.json` の既定）に合わせ、次を実行します。
+
+```bash
+# PowerShell
+$env:FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+cd functions
+npm run seed:test-data
+```
+
+```bash
+# Bash
+export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+cd functions && npm run seed:test-data
+```
+
+- 内容確認のみ: `npm run seed:test-data -- --dry-run`
+- 投入後は `/tenant/default` および `/tenant/acme` 用の `orgs` / `facilities` / `devices` が揃います（本番・実プロジェクトでは実行しないこと）。
+
 ### エミュレータ起動・フロント
 
 1. プロジェクトルートでエミュレータを起動します（例）。

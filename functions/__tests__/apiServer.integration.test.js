@@ -159,6 +159,40 @@ describe('api requireAuth', () => {
     expect(res.body.code).toBe(200);
   });
 
+  it('GET /api/admin/geocode returns coordinates when GSI returns a hit', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            geometry: { coordinates: [139.767125, 35.681236] },
+            properties: { title: '東京都渋谷区...' },
+          },
+        ],
+      }),
+    );
+    const token = jwt.sign(
+      { sub: 'u1', role: 'admin', orgId: 'default' },
+      process.env.JWT_ACCESS_SECRET,
+      { algorithm: 'HS256', expiresIn: '5m' },
+    );
+    const res = await request(app)
+      .get('/api/admin/geocode?q=' + encodeURIComponent('東京都渋谷区神南'))
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(200);
+    expect(res.body.lat).toBeCloseTo(35.681236, 5);
+    expect(res.body.lng).toBeCloseTo(139.767125, 5);
+    expect(res.body.label).toBe('東京都渋谷区...');
+    jest.restoreAllMocks();
+  });
+
+  it('GET /api/admin/geocode returns 401 without token', async () => {
+    const res = await request(app).get('/api/admin/geocode?q=' + encodeURIComponent('東京都渋谷'));
+    expect(res.status).toBe(401);
+  });
+
   it('returns 403 for admin on platform orgs', async () => {
     const token = jwt.sign(
       { sub: 'u1', role: 'admin', orgId: 'default' },
@@ -176,6 +210,18 @@ describe('api requireAuth', () => {
       { algorithm: 'HS256', expiresIn: '5m' },
     );
     const res = await request(app).get('/api/admin/platform/orgs').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  it('returns 200 for superadmin on platform users list', async () => {
+    const token = jwt.sign(
+      { sub: 'u2', role: 'superadmin', orgId: 'default' },
+      process.env.JWT_ACCESS_SECRET,
+      { algorithm: 'HS256', expiresIn: '5m' },
+    );
+    const res = await request(app).get('/api/admin/platform/users').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
     expect(res.body.code).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);

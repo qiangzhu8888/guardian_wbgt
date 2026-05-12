@@ -36,4 +36,5 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
       - run: npm ci
+      - run: node scripts/seed-test-data.cjs --dry-run
       - run: npm test

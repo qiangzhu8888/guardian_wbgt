@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+﻿import { useState, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -99,7 +99,7 @@ export function DetailView({
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-colors"
+          className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 min-h-[44px] text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50 hover:border-slate-300 transition-colors touch-manipulation"
         >
           ← 戻る
         </button>
@@ -111,11 +111,6 @@ export function DetailView({
           </div>
           {facility.address ? (
             <p className="text-xs text-gray-500">{facility.address}</p>
-          ) : null}
-          {facility.lat != null && facility.lng != null ? (
-            <p className="text-[10px] text-gray-400">
-              {Number(facility.lat).toFixed(5)}, {Number(facility.lng).toFixed(5)}
-            </p>
           ) : null}
         </div>
         <p className="text-xs text-gray-400 hidden sm:block">最終更新 {facility.updated}</p>
@@ -201,7 +196,8 @@ export function DetailView({
             表示できるデータがありません
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
+          <div className="h-[200px] w-full sm:h-[240px] min-h-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 10, right: 24, left: -10, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} interval="preserveStartEnd" />
@@ -267,6 +263,7 @@ export function DetailView({
               />
             </LineChart>
           </ResponsiveContainer>
+          </div>
         )}
 
         <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">

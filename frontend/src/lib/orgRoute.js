@@ -16,5 +16,22 @@ export function publicConfigQueryString(orgSlug) {
 }
 
 export function monitorHomePath(orgSlug) {
-  return `/o/${encodeURIComponent(normalizeOrgSlugParam(orgSlug))}`;
+  return `/tenant/${encodeURIComponent(normalizeOrgSlugParam(orgSlug))}`;
+}
+
+/**
+ * テナント別・公開監視画面の絶対 URL（管理画面の案内表示用）。
+ * `VITE_PUBLIC_APP_ORIGIN`（末尾スラッシュなし）があれば最優先。未設定時は `window.location.origin`。
+ * @param {unknown} [orgSlug]
+ */
+export function publicOrgDashboardAbsoluteUrl(orgSlug) {
+  const path = monitorHomePath(orgSlug);
+  const configured = String(import.meta.env.VITE_PUBLIC_APP_ORIGIN || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (configured) return `${configured}${path}`;
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${path}`;
+  }
+  return path;
 }

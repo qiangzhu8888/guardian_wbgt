@@ -47,8 +47,8 @@ export default function AdminLogin() {
         className="relative w-full max-w-md surface-card p-8 sm:p-10 space-y-6 shadow-soft"
       >
         <div className="space-y-1 text-center sm:text-left">
-          <p className="text-xs font-semibold uppercase tracking-widest text-sky-700/80">Admin</p>
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">管理者ログイン</h1>
+          <p className="text-xs font-semibold uppercase tracking-widest text-sky-700/80">WBGT 管理</p>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">コンソールへログイン</h1>
           <p className="text-sm text-slate-500">監視システムの施設・デバイスを管理します</p>
         </div>
         {err && (

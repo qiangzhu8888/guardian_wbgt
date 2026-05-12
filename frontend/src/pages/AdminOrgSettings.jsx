@@ -1,7 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import AdminLayout from '../components/AdminLayout';
 import { monitorHomePath } from '../lib/orgRoute';
-import { fetchAdminOrgSettings, patchAdminOrgSettings } from '../lib/publicApi';
+import { fetchAdminOrgSettings, patchAdminOrgSettings, uploadAdminOrgLogo } from '../lib/publicApi';
+import { clearAuthSession, getAuthUser } from '../lib/authSession';
+import {
+  DASHBOARD_THEME_PRESETS,
+  pickerHexFromTheme,
+  normalizeDashboardHex,
+} from '../lib/dashboardTheme';
 
 function getToken() {
   return sessionStorage.getItem('accessToken') || '';
@@ -21,6 +28,8 @@ export default function AdminOrgSettings() {
   const [slugHint, setSlugHint] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [keyLast4, setKeyLast4] = useState(/** @type {string | null} */ (null));
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoFileRef = useRef(null);
 
   async function load() {
     const token = getToken();
@@ -33,7 +42,7 @@ export default function AdminOrgSettings() {
     const j = await fetchAdminOrgSettings(token);
     setLoading(false);
     if (j._status === 401 || j._status === 403) {
-      sessionStorage.removeItem('accessToken');
+      clearAuthSession();
       nav('/admin/login');
       return;
     }
@@ -61,13 +70,25 @@ export default function AdminOrgSettings() {
     e.preventDefault();
     const token = getToken();
     if (!token) return;
+
+    const th = themePrimary.trim();
+    let themeToSend = '';
+    if (th) {
+      const n = normalizeDashboardHex(th);
+      if (!n) {
+        setErr('テーマ色は #RRGGBB 形式（例: #0EA5E9）で入力するか、「色をクリア」で空にしてください');
+        return;
+      }
+      themeToSend = n;
+    }
+
     setErr('');
     setOkMsg('');
     setSaving(true);
     const body = {
       dashboardTitle,
       dashboardSubtitle,
-      themePrimary,
+      themePrimary: themeToSend,
       logoUrl,
     };
     if (buildicsApiKey.trim()) {
@@ -76,7 +97,7 @@ export default function AdminOrgSettings() {
     const j = await patchAdminOrgSettings(token, body);
     setSaving(false);
     if (j._status === 401 || j._status === 403) {
-      sessionStorage.removeItem('accessToken');
+      clearAuthSession();
       nav('/admin/login');
       return;
     }
@@ -86,6 +107,68 @@ export default function AdminOrgSettings() {
     }
     setOkMsg('保存しました');
     setBuildicsApiKey('');
+    await load();
+  }
+
+  async function onLogoFile(ev) {
+    const file = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!file) return;
+    const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+    if (!allowed.includes(file.type)) {
+      setErr('PNG / JPEG / WebP / SVG のみアップロードできます');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setErr('画像は 2MB 以下にしてください');
+      return;
+    }
+    const token = getToken();
+    if (!token) return;
+    setErr('');
+    setOkMsg('');
+    setUploadingLogo(true);
+    const j = await uploadAdminOrgLogo(token, file);
+    setUploadingLogo(false);
+    if (j._status === 401 || j._status === 403) {
+      clearAuthSession();
+      nav('/admin/login');
+      return;
+    }
+    if (!j._ok) {
+      setErr(typeof j.msg === 'string' ? j.msg : 'アップロードに失敗しました');
+      return;
+    }
+    const url = j.data && typeof j.data.logoUrl === 'string' ? j.data.logoUrl : '';
+    if (url) {
+      setLogoUrl(url);
+      setOkMsg('ロゴをアップロードしました');
+    }
+  }
+
+  async function onClearLogo() {
+    if (!logoUrl) return;
+    if (!window.confirm('監視画面のロゴを削除しますか？（ストレージ上の画像も削除します）')) {
+      return;
+    }
+    const token = getToken();
+    if (!token) return;
+    setErr('');
+    setOkMsg('');
+    setSaving(true);
+    const j = await patchAdminOrgSettings(token, { logoUrl: '' });
+    setSaving(false);
+    if (j._status === 401 || j._status === 403) {
+      clearAuthSession();
+      nav('/admin/login');
+      return;
+    }
+    if (!j._ok) {
+      setErr(typeof j.msg === 'string' ? j.msg : '削除に失敗しました');
+      return;
+    }
+    setLogoUrl('');
+    setOkMsg('ロゴを削除しました');
     await load();
   }
 
@@ -113,23 +196,31 @@ export default function AdminOrgSettings() {
   }
 
   return (
-    <div className="app-admin-bg p-4 sm:p-6">
-      <div className="max-w-lg mx-auto">
-        <div className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-widest text-sky-800/80 mb-1">Settings</p>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">組織設定</h1>
-          <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-            監視画面（公開ダッシュボード）のタイトル・外観と、必要に応じて BUILDICS API キーを設定します。
-            {slugHint ? (
-              <span className="block mt-2 text-xs text-slate-500">
-                公開URLスラッグ: <code className="bg-slate-100 px-1.5 py-0.5 rounded-md font-mono text-[11px]">{slugHint}</code>
-                （Firestore の <code className="bg-slate-100 px-1.5 py-0.5 rounded-md font-mono text-[11px]">orgs</code>{' '}
-                で変更）
-              </span>
-            ) : null}
-          </p>
-        </div>
-
+    <AdminLayout
+      width="narrow"
+      title="組織設定"
+      description={
+        <>
+          監視画面（公開ダッシュボード）の<strong>タイトル・テーマ・ロゴ</strong>と、必要に応じて組織専用の{' '}
+          <strong>BUILDICS API キー</strong>を設定します。
+          {slugHint ? (
+            <span className="block mt-3 text-xs text-slate-500">
+              公開URL:{' '}
+              <code className="bg-slate-100 px-1.5 py-0.5 rounded-md font-mono text-[11px]">/tenant/{slugHint}</code>
+              <span className="text-slate-400 mx-1">·</span>
+              Firestore の <code className="bg-slate-100 px-1 rounded text-[11px]">orgs</code> でスラッグ変更可
+            </span>
+          ) : null}
+        </>
+      }
+      headerActions={
+        <>
+          <Link to="/admin" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
+            メニュー
+          </Link>
+        </>
+      }
+    >
         {loading ? (
           <div className="surface-card p-8 flex flex-col items-center gap-4">
             <div
@@ -175,31 +266,111 @@ export default function AdminOrgSettings() {
               />
             </label>
 
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600">テーマ色（#RRGGBB）</span>
-              <input
-                type="text"
-                value={themePrimary}
-                onChange={(ev) => setThemePrimary(ev.target.value)}
-                placeholder="#000000"
-                className="input-field mt-1.5 font-mono text-[13px]"
-                maxLength={7}
-                autoComplete="off"
-              />
-            </label>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+              <span className="text-xs font-semibold text-slate-600">プレビュー</span>
+              <div className="flex flex-wrap items-center gap-4">
+                <div
+                  className="h-14 flex-1 min-w-[140px] max-w-[200px] rounded-lg border border-slate-200 shadow-inner"
+                  style={{
+                    backgroundColor:
+                      themePrimary && /^#[0-9A-Fa-f]{6}$/.test(themePrimary.trim())
+                        ? themePrimary.trim()
+                        : '#0f172a',
+                  }}
+                  title="ヘッダー帯のイメージ"
+                />
+                <div className="flex items-center justify-center min-h-[3rem] min-w-[4rem] rounded-lg border border-dashed border-slate-200 bg-white px-3">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="" className="max-h-12 w-auto max-w-[120px] object-contain" />
+                  ) : (
+                    <span className="text-[11px] text-slate-400">ロゴなし</span>
+                  )}
+                </div>
+              </div>
+            </div>
 
-            <label className="block">
-              <span className="text-xs font-semibold text-slate-600">ロゴ URL（HTTPS・許可ホストのみ）</span>
+            <div className="space-y-3">
+              <span className="text-xs font-semibold text-slate-600">テーマ色（アクセント・ヘッダー帯）</span>
+              <p className="text-xs text-slate-500">
+                未設定のときは監視画面のデフォルト配色です。下の「保存」で Firestore に反映されます。
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <span className="sr-only">カラーピッカー</span>
+                  <input
+                    type="color"
+                    aria-label="テーマ色を選ぶ"
+                    className="h-10 w-14 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                    value={pickerHexFromTheme(themePrimary)}
+                    onChange={(ev) => setThemePrimary(normalizeDashboardHex(ev.target.value))}
+                  />
+                  <span className="text-xs text-slate-600">スポイト</span>
+                </label>
+                <input
+                  type="text"
+                  value={themePrimary}
+                  onChange={(ev) => setThemePrimary(ev.target.value)}
+                  placeholder="例: #0EA5E9（空でデフォルト）"
+                  className="input-field font-mono text-[13px] flex-1 min-w-[8rem]"
+                  maxLength={7}
+                  autoComplete="off"
+                  aria-label="テーマ色を16進で入力"
+                />
+                <button
+                  type="button"
+                  className="text-xs font-medium text-slate-600 hover:text-slate-900 underline underline-offset-2"
+                  onClick={() => setThemePrimary('')}
+                >
+                  色をクリア
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {DASHBOARD_THEME_PRESETS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    title={p.label}
+                    onClick={() => setThemePrimary(p.value)}
+                    className={`h-8 w-8 rounded-md border-2 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-1 ${
+                      themePrimary.toUpperCase() === p.value ? 'border-sky-600 ring-1 ring-sky-500' : 'border-white'
+                    }`}
+                    style={{ backgroundColor: p.value }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <span className="text-xs font-semibold text-slate-600">ロゴ画像</span>
+              <p className="text-xs text-slate-500">PNG / JPEG / WebP / SVG、最大 2MB。Firebase Storage に保存され、監視画面からその URL で表示されます。</p>
               <input
-                type="url"
-                value={logoUrl}
-                onChange={(ev) => setLogoUrl(ev.target.value)}
-                placeholder="https://storage.googleapis.com/..."
-                className="input-field mt-1.5"
-                maxLength={500}
-                autoComplete="off"
+                ref={logoFileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                className="hidden"
+                onChange={onLogoFile}
               />
-            </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={uploadingLogo || saving}
+                  className="btn-secondary-outline text-sm py-2 px-4 disabled:opacity-50"
+                  onClick={() => logoFileRef.current?.click()}
+                >
+                  {uploadingLogo ? 'アップロード中…' : 'ファイルを選ぶ'}
+                </button>
+                {logoUrl ? (
+                  <button
+                    type="button"
+                    disabled={uploadingLogo || saving}
+                    className="text-sm font-medium text-amber-900 hover:underline underline-offset-2 disabled:opacity-50"
+                    onClick={onClearLogo}
+                  >
+                    ロゴを削除
+                  </button>
+                ) : null}
+              </div>
+            </div>
 
             <div className="border-t border-slate-100 pt-5 space-y-3">
               <label className="block">
@@ -241,15 +412,17 @@ export default function AdminOrgSettings() {
           </form>
         )}
 
-        <p className="mt-8 text-center text-sm space-y-2">
+        <p className="pt-6 text-center text-sm space-y-2 border-t border-slate-200/80">
           <Link to="/admin" className="block font-medium text-slate-600 hover:text-sky-800 underline underline-offset-4">
             ← 管理メニュー
           </Link>
-          <Link to={monitorHomePath()} className="block font-medium text-slate-600 hover:text-sky-800 underline underline-offset-4">
-            ← 監視画面
+          <Link
+            to={monitorHomePath(slugHint || getAuthUser()?.orgSlug)}
+            className="block font-medium text-slate-600 hover:text-sky-800 underline underline-offset-4"
+          >
+            ← 監視画面（公開）
           </Link>
         </p>
-      </div>
-    </div>
+    </AdminLayout>
   );
 }

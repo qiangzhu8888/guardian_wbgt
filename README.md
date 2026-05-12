@@ -47,15 +47,8 @@ cd ../functions && npm ci
 ## ローカル開発
 
 1. **Functions + Firestore エミュレータ**（リポジトリルート）
-
-   初回のみエミュレータ定義の対話セットアップが必要なら、ルートで `firebase init emulators` を実行してください（`firebase.json` に `emulators` がある場合はスキップ可）。
-
-   ```bash
-   firebase emulators:start --only "functions,firestore"
-   ```
-
+  初回のみエミュレータ定義の対話セットアップが必要なら、ルートで `firebase init emulators` を実行してください（`firebase.json` に `emulators` がある場合はスキップ可）。
    **PowerShell** では `--only` を **引用符で囲む**必要があります。初回管理者は `functions/.env` に `AUTH_BOOTSTRAP_SECRET` と `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` を設定し、`cd functions && npm run seed:admin` で登録できます（[DEPLOY.md](./DEPLOY.md)）。
-
 2. **フロント**（別ターミナル）
   ```bash
    cd frontend && npm run dev

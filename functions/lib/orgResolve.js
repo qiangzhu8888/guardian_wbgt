@@ -65,10 +65,39 @@ async function resolvePublicOrg(db, orgSlugQuery) {
   throw err;
 }
 
+/**
+ * 台帳 orgId から公開パス用スラッグを解決する（管理ログイン・リンク用）
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string | undefined | null} orgId
+ * @returns {Promise<string>}
+ */
+async function getOrgSlugForOrgId(db, orgId) {
+  const id = String(orgId || '').trim() || defaultOrgId();
+  try {
+    const snap = await db.collection('orgs').doc(id).get();
+    if (snap.exists) {
+      const raw = snap.data()?.slug;
+      if (typeof raw === 'string' && raw.trim()) {
+        const s = String(raw).trim().toLowerCase();
+        if (isValidOrgSlug(s)) return s;
+      }
+    }
+  } catch (e) {
+    console.error('getOrgSlugForOrgId', e);
+  }
+  if (id === defaultOrgId()) {
+    return defaultOrgSlug();
+  }
+  const lower = id.toLowerCase();
+  if (isValidOrgSlug(lower)) return lower;
+  return defaultOrgSlug();
+}
+
 module.exports = {
   ORG_SLUG_RE,
   defaultOrgId,
   defaultOrgSlug,
+  getOrgSlugForOrgId,
   isValidOrgSlug,
   normalizeOrgSlugQuery,
   resolvePublicOrg,

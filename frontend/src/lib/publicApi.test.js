@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { buildBuildicsProxyUrl, buildPublicConfigUrls, adminApiUrl } from './publicApi';
+import {
+  buildBuildicsProxyUrl,
+  buildPublicConfigUrls,
+  adminApiUrl,
+  uploadAdminOrgLogo,
+} from './publicApi';
 
 describe('publicApi', () => {
   beforeEach(() => {
@@ -27,5 +32,33 @@ describe('publicApi', () => {
     vi.stubEnv('VITE_API_BASE', '');
     const u = adminApiUrl('/api/admin/org-settings');
     expect(u).toBe('/api/admin/org-settings');
+  });
+
+  it('uploadAdminOrgLogo posts raw file body', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 200, data: { logoUrl: 'https://storage.googleapis.com/b/x.png' } }),
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const file = new File([new Uint8Array([1, 2, 3])], 'x.png', { type: 'image/png' });
+      const out = await uploadAdminOrgLogo('tok', file);
+      expect(out._ok).toBe(true);
+      expect(out.data?.logoUrl).toContain('storage.googleapis.com');
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/admin/org-logo',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ Authorization: 'Bearer tok', 'Content-Type': 'image/png' }),
+        }),
+      );
+      const call = fetchMock.mock.calls[0];
+      expect(call[1].body).toBe(file);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

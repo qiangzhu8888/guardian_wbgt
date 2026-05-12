@@ -66,6 +66,24 @@ export async function patchAdminOrgSettings(accessToken, body) {
 }
 
 /**
+ * ロゴ画像を Firebase Storage に保存し、orgs.logoUrl を更新する。
+ * @param {string} accessToken
+ * @param {File} file PNG / JPEG / WebP / SVG
+ */
+export async function uploadAdminOrgLogo(accessToken, file) {
+  const res = await fetch(adminApiUrl('/api/admin/org-logo'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
  * @param {string} accessToken
  */
 export async function fetchPlatformOrgs(accessToken) {
@@ -105,6 +123,48 @@ export async function createPlatformUser(accessToken, body) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ */
+export async function fetchPlatformUsers(accessToken) {
+  const res = await fetch(adminApiUrl('/api/admin/platform/users'), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ * @param {string} userId
+ * @param {{ email?: string, password?: string, orgId?: string, role?: string }} body
+ */
+export async function patchPlatformUser(accessToken, userId, body) {
+  const res = await fetch(adminApiUrl(`/api/admin/platform/users/${encodeURIComponent(userId)}`), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ * @param {string} userId
+ */
+export async function deletePlatformUser(accessToken, userId) {
+  const res = await fetch(adminApiUrl(`/api/admin/platform/users/${encodeURIComponent(userId)}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   const j = await res.json().catch(() => ({}));
   return { ...j, _ok: res.ok, _status: res.status };

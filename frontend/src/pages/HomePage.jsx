@@ -9,7 +9,7 @@ export default function HomePage() {
 
   if (loading && !config) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-5 app-admin-bg px-4">
+      <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center gap-5 app-admin-bg px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div
           className="h-12 w-12 rounded-full border-[3px] border-sky-500 border-t-transparent animate-spin"
           aria-hidden
@@ -31,7 +31,7 @@ export default function HomePage() {
 
   if (error && !config) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-6 app-admin-bg px-4">
+      <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center gap-6 app-admin-bg px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="surface-card max-w-md w-full p-6 text-center space-y-3">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-xl">
             ⚠

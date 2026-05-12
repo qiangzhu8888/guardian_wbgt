@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { calculateWBGT, getWBGTLevel, parseDataValue } from '../lib/wbgt';
 import { buildBuildicsProxyUrl } from '../lib/publicApi';
+import { buildQueryPlan } from '../lib/buildicsQueryPlan';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -45,7 +46,7 @@ const defaultPolling = {
  * @param {Array<{ deviceId: string, facilityId: number }>} deviceMappings
  * @param {number} intervalMs
  * @param {Partial<typeof defaultPolling>} pollingOpts
- * @param {string | undefined} orgSlug BFF 台帳スコープ用（/o/:orgSlug）
+ * @param {string | undefined} orgSlug BFF 台帳スコープ用（/tenant/:orgSlug）
  */
 export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts = {}, orgSlug) {
   const historyHours = pollingOpts.historyHours ?? defaultPolling.historyHours;

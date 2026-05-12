@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { monitorHomePath } from '../lib/orgRoute';
+import AdminLayout from '../components/AdminLayout';
 import {
   parseDeviceBulkCsv,
   DEVICE_BULK_CSV_TEMPLATE,
 } from '../lib/parseDeviceBulkCsv';
+import { clearAuthSession } from '../lib/authSession';
 
 function apiUrl(path) {
   if (import.meta.env.DEV && import.meta.env.VITE_API_BASE) {
@@ -18,6 +19,8 @@ function getToken() {
 }
 
 const BULK_CHUNK = 100;
+const BULK_PREVIEW_ROWS = 10;
+const BULK_ERR_SHOW = 20;
 
 export default function AdminDevices() {
   const nav = useNavigate();
@@ -35,6 +38,8 @@ export default function AdminDevices() {
   const [bulkCsvText, setBulkCsvText] = useState('');
   const [bulkTab, setBulkTab] = useState('csv');
   const [fileKey, setFileKey] = useState(0);
+  const [bulkBatch, setBulkBatch] = useState(null);
+  const [csvDragOver, setCsvDragOver] = useState(false);
 
   async function loadFacilities() {
     const token = getToken();
@@ -68,7 +73,7 @@ export default function AdminDevices() {
     const j = await res.json().catch(() => ({}));
     setLoading(false);
     if (res.status === 401 || res.status === 403) {
-      sessionStorage.removeItem('accessToken');
+      clearAuthSession();
       nav('/admin/login');
       return;
     }
@@ -151,10 +156,13 @@ export default function AdminDevices() {
     setErr('');
     setSuccessMsg('');
     setSaving(true);
+    let total = 0;
+    const nChunks = Math.max(1, Math.ceil(itemsPayload.length / BULK_CHUNK));
+    setBulkBatch({ completed: 0, total: nChunks, rows: itemsPayload.length });
     try {
-      let total = 0;
-      for (let i = 0; i < itemsPayload.length; i += BULK_CHUNK) {
-        const slice = itemsPayload.slice(i, i + BULK_CHUNK);
+      for (let c = 0; c < nChunks; c += 1) {
+        const slice = itemsPayload.slice(c * BULK_CHUNK, (c + 1) * BULK_CHUNK);
+        setBulkBatch({ completed: c, total: nChunks, rows: itemsPayload.length });
         const res = await fetch(apiUrl('/api/admin/devices/bulk'), {
           method: 'POST',
           headers: {
@@ -165,7 +173,7 @@ export default function AdminDevices() {
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const batchStart = total;
+          const batchStart = c * BULK_CHUNK;
           const detail =
             Array.isArray(j.errors) && j.errors.length
               ? j.errors
@@ -176,68 +184,102 @@ export default function AdminDevices() {
                   .join(' · ')
               : j.msg || '一括登録に失敗しました';
           setErr(detail);
-          setSaving(false);
           return;
         }
         total += slice.length;
+        setBulkBatch({ completed: c + 1, total: nChunks, rows: itemsPayload.length });
       }
-      setSuccessMsg(`${total} 件を一括登録しました（${Math.ceil(itemsPayload.length / BULK_CHUNK)} 回に分けて送信）`);
+      setSuccessMsg(
+        `${total} 件を一括登録しました（${nChunks} 回に分けて送信しました）`,
+      );
       setBulkJsonText('');
       setBulkCsvText('');
       setFileKey((k) => k + 1);
       if (fileInputRef.current) fileInputRef.current.value = '';
       load();
     } finally {
+      setBulkBatch(null);
       setSaving(false);
     }
   }
 
   async function bulkAddFromCsv(e) {
     e.preventDefault();
-    const parsed = parseDeviceBulkCsv(bulkCsvText, facilities);
-    if (!parsed.ok) {
+    if (!bulkCsvText.trim()) return;
+    if (!csvParsed || !csvParsed.ok) {
       setSuccessMsg('');
-      const errs = parsed.errors.slice(0, 8);
-      const more =
-        parsed.errors.length > 8
-          ? ` 他 ${parsed.errors.length - 8} 件`
-          : '';
       setErr(
-        errs.map((x) => (x.row ? `CSV ${x.row} 行目: ${x.msg}` : x.msg)).join(' / ') +
-          more,
+        csvParsed && !csvParsed.ok
+          ? `チェック結果: ${csvParsed.errors.length} 件の修正が必要です（一覧は右／下のパネルを参照）`
+          : 'CSV を入力してください',
       );
       return;
     }
-    await submitBulkChunks(parsed.items);
+    await submitBulkChunks(csvParsed.items);
   }
 
   async function bulkAddJson(e) {
     e.preventDefault();
-    let rows;
-    try {
-      rows = JSON.parse(bulkJsonText);
-    } catch {
+    if (!bulkJsonText.trim()) return;
+    if (!jsonParsed || !jsonParsed.ok) {
       setSuccessMsg('');
-      setErr('JSON の形式が不正です');
+      setErr(jsonParsed?.err || 'JSON を確認してください');
       return;
     }
-    if (!Array.isArray(rows)) {
-      setSuccessMsg('');
-      setErr('トップレベルは配列にしてください（例: [ {...}, {...} ]）');
-      return;
-    }
-    await submitBulkChunks(rows);
+    await submitBulkChunks(jsonParsed.rows);
   }
 
-  function onCsvFile(ev) {
-    const file = ev.target.files?.[0];
+  function readCsvFileToState(file) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       setBulkCsvText(String(reader.result || ''));
       setErr('');
+      setSuccessMsg('');
     };
     reader.readAsText(file, 'UTF-8');
+  }
+
+  function onCsvFile(ev) {
+    readCsvFileToState(ev.target.files?.[0]);
+  }
+
+  function onCsvDragOver(ev) {
+    bulkTab === 'csv' && ev.preventDefault();
+  }
+
+  function onCsvDragEnter(ev) {
+    ev.preventDefault();
+    if (bulkTab === 'csv') setCsvDragOver(true);
+  }
+
+  function onCsvDragLeave(ev) {
+    ev.preventDefault();
+    if (!ev.currentTarget.contains(ev.relatedTarget)) setCsvDragOver(false);
+  }
+
+  function onCsvDrop(ev) {
+    ev.preventDefault();
+    setCsvDragOver(false);
+    const file = ev.dataTransfer.files?.[0];
+    if (!file) return;
+    const okName = /\.csv$/i.test(file.name);
+    const okType = file.type === 'text/csv' || file.type === 'application/vnd.ms-excel' || file.type === '';
+    if (!okName && !okType) {
+      setSuccessMsg('');
+      setErr('.csv ファイルをドロップするか、エクスプローラーから選択してください');
+      return;
+    }
+    readCsvFileToState(file);
+  }
+
+  function clearBulkInput() {
+    setBulkCsvText('');
+    setBulkJsonText('');
+    setFileKey((k) => k + 1);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setErr('');
+    setSuccessMsg('');
   }
 
   function downloadCsvTemplate() {
@@ -251,61 +293,57 @@ export default function AdminDevices() {
     URL.revokeObjectURL(a.href);
   }
 
-  async function logout() {
-    await fetch(apiUrl('/api/auth/logout'), { method: 'POST', credentials: 'include' });
-    sessionStorage.removeItem('accessToken');
-    nav('/admin/login');
-  }
+  const csvParsed = useMemo(() => {
+    if (!bulkCsvText.trim()) return null;
+    return parseDeviceBulkCsv(bulkCsvText, facilities);
+  }, [bulkCsvText, facilities]);
 
-  const csvPreviewCount = (() => {
-    const p = parseDeviceBulkCsv(bulkCsvText, facilities);
-    return p.ok ? p.items.length : null;
-  })();
+  const jsonParsed = useMemo(() => {
+    if (!bulkJsonText.trim()) return null;
+    try {
+      const rows = JSON.parse(bulkJsonText);
+      if (!Array.isArray(rows)) {
+        return { ok: false, err: 'トップレベルは配列にしてください（例: [ {...}, {...} ]）' };
+      }
+      return { ok: true, rows };
+    } catch {
+      return { ok: false, err: 'JSON の構文が不正です（カンマや括弧を確認）' };
+    }
+  }, [bulkJsonText]);
 
   const activeCount = items.filter((r) => !r.disabled).length;
 
   return (
-    <div className="app-admin-bg p-4 sm:p-6">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">デバイス台帳（管理者）</h1>
-            <p className="text-sm text-slate-600 mt-2 max-w-xl leading-relaxed">
-              BUILDICS の<strong>デバイス ID</strong>を、監視画面に表示する<strong>場所（監視地点）</strong>へ紐付けます。
-              紐付けがないと、台帳に載っていても地点別の一覧に出ません。
-            </p>
-          </div>
-          <div className="flex gap-3 sm:gap-4 text-sm flex-wrap shrink-0 items-center">
-            <Link to="/admin" className="admin-header-link">
-              管理トップ
-            </Link>
-            <Link to="/admin/facilities" className="admin-header-link">
-              場所の追加
-            </Link>
-            <Link to={monitorHomePath()} className="admin-header-link">
-              監視画面
-            </Link>
-            <button
-              type="button"
-              onClick={logout}
-              className="text-sm font-medium text-red-700 hover:text-red-900 underline underline-offset-4"
-            >
-              ログアウト
-            </button>
-          </div>
-        </div>
-
-        <div className="surface-card p-5 mb-5 text-sm text-slate-700">
-          <p className="font-bold text-slate-900 mb-2">使い方</p>
-          <ol className="list-decimal list-inside space-y-1.5 text-xs sm:text-sm leading-relaxed">
-            <li>
-              先に <Link to="/admin/facilities" className="text-sky-800 underline font-semibold">場所を登録</Link>
-              しておきます。
-            </li>
-            <li>下のフォームまたは CSV でデバイスを追加します（既存 ID と重複するとエラーになります）。</li>
-            <li>一覧の「紐付け場所」から、あとから別の場所へ変更できます。</li>
-          </ol>
-        </div>
+    <AdminLayout
+      width="wide"
+      title="デバイス台帳"
+      description={
+        <>
+          BUILDICS の<strong>デバイス ID</strong>を、監視画面に表示する<strong>場所（監視地点）</strong>へ紐付けます。紐付けがないと、台帳に載っていても地点別の一覧に出ません。
+        </>
+      }
+      headerActions={
+        <>
+          <Link to="/admin" className="btn-admin-toolbar-ghost">
+            メニュー
+          </Link>
+          <Link to="/admin/facilities" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
+            場所
+          </Link>
+        </>
+      }
+    >
+      <div className="surface-card p-5 mb-5 text-sm text-slate-700">
+        <p className="admin-card-section-title mb-2">使い方</p>
+        <ol className="list-decimal list-inside space-y-1.5 text-xs sm:text-sm leading-relaxed">
+          <li>
+            先に <Link to="/admin/facilities" className="text-sky-800 underline font-semibold">場所を登録</Link>
+            しておきます。
+          </li>
+          <li>下のフォームまたは CSV でデバイスを追加します（既存 ID と重複するとエラーになります）。</li>
+          <li>一覧の「紐付け場所」から、あとから別の場所へ変更できます。</li>
+        </ol>
+      </div>
 
       {(successMsg || err) && (
         <div className="mb-4 space-y-2">
@@ -331,7 +369,7 @@ export default function AdminDevices() {
       )}
 
       <div className="surface-card p-5 sm:p-6 mb-6">
-        <h2 className="font-bold text-slate-900 text-sm mb-1">1 件ずつ登録</h2>
+        <h2 className="admin-card-section-title mb-1">1 件ずつ登録</h2>
         <p className="text-xs text-slate-500 mb-4">
           デバイス ID は 6〜24 桁の数字です。表示名（ラベル）は任意です。
         </p>
@@ -400,116 +438,355 @@ export default function AdminDevices() {
         </form>
       </div>
 
-      <div className="surface-card p-5 sm:p-6 mb-6">
-        <h2 className="font-semibold text-slate-800 text-sm mb-1">一括登録</h2>
-        <p className="text-xs text-slate-500 mb-3">
-          サーバーは 1 回につき最大 {BULK_CHUNK} 件まで受け取ります。それ以上ある CSV は自動で分割して送ります。
-        </p>
+      <div className="surface-card p-5 sm:p-6 mb-6 border border-slate-100/80 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4">
+          <div>
+            <h2 className="admin-card-section-title mb-1">一括登録</h2>
+            <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
+              Excel で編集した CSV の取り込みや、API 連携向けの JSON をまとめて送れます。登録前に件数と先頭行のプレビューが表示されます。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5 shrink-0">
+            <span className="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+              1 回 {BULK_CHUNK} 件まで
+            </span>
+            <span className="inline-flex items-center rounded-lg bg-sky-50 border border-sky-100 px-2.5 py-1 text-[11px] font-semibold text-sky-900">
+              超過は自動で分割送信
+            </span>
+          </div>
+        </div>
 
-        <div className="flex gap-1 p-0.5 bg-slate-100 rounded-lg w-fit mb-3">
+        <div
+          className="flex gap-1 p-1 bg-slate-100 rounded-xl w-full sm:w-fit mb-5"
+          role="tablist"
+          aria-label="一括登録の入力形式"
+        >
           <button
             type="button"
+            role="tab"
+            aria-selected={bulkTab === 'csv'}
             onClick={() => {
               setBulkTab('csv');
               setErr('');
+              setCsvDragOver(false);
             }}
-            className={`px-3 py-1.5 text-xs rounded-md font-medium ${
-              bulkTab === 'csv' ? 'bg-white shadow text-slate-900' : 'text-slate-600'
+            className={`flex-1 sm:flex-none px-4 py-2 text-xs rounded-lg font-semibold transition-colors ${
+              bulkTab === 'csv'
+                ? 'bg-white shadow text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            CSV（推奨）
+            CSV
+            <span className="hidden sm:inline text-slate-400 font-normal">（推奨）</span>
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={bulkTab === 'json'}
             onClick={() => {
               setBulkTab('json');
               setErr('');
+              setCsvDragOver(false);
             }}
-            className={`px-3 py-1.5 text-xs rounded-md font-medium ${
-              bulkTab === 'json' ? 'bg-white shadow text-slate-900' : 'text-slate-600'
+            className={`flex-1 sm:flex-none px-4 py-2 text-xs rounded-lg font-semibold transition-colors ${
+              bulkTab === 'json'
+                ? 'bg-white shadow text-slate-900'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            JSON（上級者）
+            JSON
+            <span className="hidden sm:inline text-slate-400 font-normal">（上級者）</span>
           </button>
         </div>
 
-        {bulkTab === 'csv' ? (
-          <form onSubmit={bulkAddFromCsv} className="space-y-3">
-            <div className="flex flex-wrap gap-2 items-center">
-              <input
-                key={fileKey}
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                onChange={onCsvFile}
-                className="text-xs max-w-full"
-              />
-              <button
-                type="button"
-                onClick={downloadCsvTemplate}
-                className="text-xs text-slate-700 underline"
-              >
-                サンプル CSV をダウンロード
-              </button>
-            </div>
-            <p className="text-xs text-slate-600">
-              1 行目はヘッダー。列の例:
-              <span className="font-mono ml-1">deviceId, facilityId, label</span>
-              または
-              <span className="font-mono ml-1">デバイスID, 場所ID, ラベル</span>
-              ／ <span className="font-mono">デバイスID, 場所名, ラベル</span>
-              （場所名は上で読み込んだ場所マスタと完全一致）
-            </p>
-            <textarea
-              className="input-field text-xs font-mono min-h-[8rem] py-2"
-              value={bulkCsvText}
-              placeholder="ファイルを選ぶか、ここに CSV を貼り付け"
-              onChange={(e) => {
-                setBulkCsvText(e.target.value);
-                setErr('');
-              }}
-            />
-            {csvPreviewCount != null && bulkCsvText.trim() && (
-              <p className="text-xs text-emerald-700">プレビュー: 有効な行 {csvPreviewCount} 件</p>
+        <div className="grid lg:grid-cols-2 gap-6 lg:gap-8">
+          <div className="min-w-0 space-y-4">
+            {bulkTab === 'csv' ? (
+              <form onSubmit={bulkAddFromCsv} className="space-y-4">
+                <div
+                  onDragEnter={onCsvDragEnter}
+                  onDragOver={onCsvDragOver}
+                  onDragLeave={onCsvDragLeave}
+                  onDrop={onCsvDrop}
+                  className={`rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors ${
+                    csvDragOver
+                      ? 'border-sky-400 bg-sky-50/80'
+                      : 'border-slate-200 bg-slate-50/50 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-sm font-medium text-slate-800">CSV ファイルをドロップ</p>
+                  <p className="text-xs text-slate-500 mt-1">または</p>
+                  <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <input
+                      key={fileKey}
+                      ref={fileInputRef}
+                      id="bulk-csv-file"
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={onCsvFile}
+                      className="sr-only"
+                    />
+                    <label
+                      htmlFor="bulk-csv-file"
+                      className="inline-flex cursor-pointer items-center rounded-lg bg-white border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+                    >
+                      ファイルを選択
+                    </label>
+                    <button
+                      type="button"
+                      onClick={downloadCsvTemplate}
+                      className="text-xs font-semibold text-sky-800 underline underline-offset-2"
+                    >
+                      サンプルをダウンロード
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="bulk-csv-text" className="block text-xs font-semibold text-slate-600 mb-1">
+                    内容の確認・編集（UTF-8）
+                  </label>
+                  <textarea
+                    id="bulk-csv-text"
+                    className="input-field text-xs font-mono min-h-[12rem] py-2.5 leading-relaxed"
+                    value={bulkCsvText}
+                    placeholder="ここに CSV を貼り付けても構いません。1 行目は列名です。"
+                    onChange={(e) => {
+                      setBulkCsvText(e.target.value);
+                      setErr('');
+                    }}
+                  />
+                </div>
+
+                <details className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-xs text-slate-600">
+                  <summary className="cursor-pointer font-semibold text-slate-700 select-none">列の指定のしかた</summary>
+                  <ul className="mt-2 space-y-1 list-disc list-inside pl-0.5">
+                    <li>
+                      英語ヘッダー例:{' '}
+                      <code className="bg-white px-1 rounded font-mono text-[11px]">deviceId, facilityId, label</code>
+                    </li>
+                    <li>
+                      日本語ヘッダー例:{' '}
+                      <code className="bg-white px-1 rounded font-mono text-[11px]">デバイスID, 場所ID, ラベル</code>{' '}
+                      または{' '}
+                      <code className="bg-white px-1 rounded font-mono text-[11px]">デバイスID, 場所名, ラベル</code>
+                    </li>
+                    <li>場所名は登録済みの「名前」と完全一致する必要があります。</li>
+                  </ul>
+                </details>
+
+                {bulkBatch ? (
+                  <div className="rounded-xl bg-slate-100 border border-slate-200/80 p-3 space-y-2">
+                    <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
+                      <span>
+                        {bulkBatch.rows} 件 · {bulkBatch.total} 回に分割して送信中
+                      </span>
+                      <span className="font-mono text-slate-700">
+                        {Math.min(bulkBatch.completed + 1, bulkBatch.total)} / {bulkBatch.total} バッチ
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-200/90 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-sky-500 transition-[width] duration-300 ease-out"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(6, (bulkBatch.completed / bulkBatch.total) * 100),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={clearBulkInput}
+                    disabled={saving || (!bulkCsvText.trim() && !bulkJsonText.trim())}
+                    className="text-xs font-semibold text-slate-600 hover:text-slate-900 disabled:opacity-40 py-2"
+                  >
+                    入力をクリア
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      saving || !bulkCsvText.trim() || (csvParsed !== null && !csvParsed.ok)
+                    }
+                    className="btn-primary-solid px-6 disabled:opacity-50 w-full sm:w-auto"
+                  >
+                    {saving ? '送信中…' : 'この内容で一括登録'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={bulkAddJson} className="space-y-4">
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  トップレベルが配列の JSON です。各要素に{' '}
+                  <code className="bg-slate-100 px-1 rounded text-[11px]">deviceId</code>・
+                  <code className="bg-slate-100 px-1 rounded text-[11px]">facilityId</code>・
+                  <code className="bg-slate-100 px-1 rounded text-[11px]">label</code>（任意）
+                </p>
+                <textarea
+                  id="bulk-json-text"
+                  className="input-field text-xs font-mono min-h-[12rem] py-2.5"
+                  value={bulkJsonText}
+                  placeholder={`例: [\n  {"deviceId":"350976658106130","facilityId":1,"label":"校庭"}\n]`}
+                  onChange={(e) => {
+                    setBulkJsonText(e.target.value);
+                    setErr('');
+                  }}
+                />
+
+                {bulkBatch ? (
+                  <div className="rounded-xl bg-slate-100 border border-slate-200/80 p-3 space-y-2">
+                    <div className="flex flex-wrap justify-between gap-2 text-xs text-slate-600">
+                      <span>
+                        {bulkBatch.rows} 件 · {bulkBatch.total} 回に分割して送信中
+                      </span>
+                      <span className="font-mono text-slate-700">
+                        {Math.min(bulkBatch.completed + 1, bulkBatch.total)} / {bulkBatch.total} バッチ
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-200/90 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-sky-500 transition-[width] duration-300 ease-out"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.max(6, (bulkBatch.completed / bulkBatch.total) * 100),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={clearBulkInput}
+                    disabled={saving || (!bulkCsvText.trim() && !bulkJsonText.trim())}
+                    className="text-xs font-semibold text-slate-600 hover:text-slate-900 disabled:opacity-40 py-2"
+                  >
+                    入力をクリア
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      saving || !bulkJsonText.trim() || (jsonParsed !== null && !jsonParsed.ok)
+                    }
+                    className="btn-secondary-outline px-6 disabled:opacity-50 w-full sm:w-auto"
+                  >
+                    {saving ? '送信中…' : 'この内容で一括登録'}
+                  </button>
+                </div>
+              </form>
             )}
-            <button
-              type="submit"
-              disabled={saving || !bulkCsvText.trim()}
-              className="btn-primary-solid disabled:opacity-50"
-            >
-              {saving ? '送信中…' : 'CSV を取り込んで一括登録'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={bulkAddJson} className="space-y-2">
-            <p className="text-xs text-slate-600">
-              配列の JSON を貼り付けます。要素は{' '}
-              <code className="bg-slate-100 px-1 rounded text-[11px]">deviceId</code>・
-              <code className="bg-slate-100 px-1 rounded text-[11px]">facilityId</code>・
-              <code className="bg-slate-100 px-1 rounded text-[11px]">label</code>（任意）です。
-            </p>
-            <p className="text-[11px] font-mono text-slate-500 break-all">
-              [{`{"deviceId":"350976658106130","facilityId":1,"label":"校庭"}`}]
-            </p>
-            <textarea
-              className="input-field text-xs font-mono min-h-[7rem] py-2"
-              value={bulkJsonText}
-              onChange={(e) => setBulkJsonText(e.target.value)}
-            />
-            <button
-              type="submit"
-              disabled={saving || !bulkJsonText.trim()}
-              className="btn-secondary-outline disabled:opacity-50"
-            >
-              {saving ? '送信中…' : 'JSON を一括登録'}
-            </button>
-          </form>
-        )}
+          </div>
+
+          <div className="min-w-0 lg:border-l border-slate-100 lg:pl-8 space-y-3">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">登録前チェック</h3>
+            {bulkTab === 'csv' ? (
+              !bulkCsvText.trim() ? (
+                <p className="text-sm text-slate-500 py-6 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                  CSV を貼り付けるかファイルを選ぶと、件数とプレビューがここに出ます。
+                </p>
+              ) : csvParsed?.ok ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                      取り込み可能 · {csvParsed.items.length} 件
+                    </span>
+                    {csvParsed.items.length > BULK_CHUNK ? (
+                      <span className="text-xs text-slate-600">
+                        送信は {Math.ceil(csvParsed.items.length / BULK_CHUNK)} 回に分かれます
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-slate-50 text-slate-600 text-left">
+                        <tr>
+                          <th className="p-2 font-medium">#</th>
+                          <th className="p-2 font-medium">deviceId</th>
+                          <th className="p-2 font-medium">facilityId</th>
+                          <th className="p-2 font-medium">label</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvParsed.items.slice(0, BULK_PREVIEW_ROWS).map((row, idx) => (
+                          <tr key={`${row.deviceId}-${idx}`} className="border-t border-slate-100">
+                            <td className="p-2 text-slate-500">{idx + 1}</td>
+                            <td className="p-2 font-mono text-slate-800">{row.deviceId}</td>
+                            <td className="p-2 font-mono text-slate-700">{row.facilityId}</td>
+                            <td className="p-2 text-slate-700 max-w-[120px] truncate" title={row.label}>
+                              {row.label || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {csvParsed.items.length > BULK_PREVIEW_ROWS ? (
+                      <p className="px-2 py-1.5 text-[11px] text-slate-500 bg-slate-50 border-t border-slate-100">
+                        他 {csvParsed.items.length - BULK_PREVIEW_ROWS} 件は省略しています
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-amber-900">
+                    修正が必要です（{csvParsed?.errors?.length ?? 0} 件）
+                  </p>
+                  <ul className="max-h-56 overflow-y-auto rounded-xl border border-amber-100 bg-amber-50/50 text-xs text-amber-950 divide-y divide-amber-100/90">
+                    {(csvParsed?.errors ?? []).slice(0, BULK_ERR_SHOW).map((x, i) => (
+                      <li key={i} className="px-3 py-2 leading-relaxed">
+                        {x.row ? (
+                          <span className="font-mono text-[11px] text-amber-800">行 {x.row}</span>
+                        ) : null}{' '}
+                        {x.msg}
+                      </li>
+                    ))}
+                  </ul>
+                  {(csvParsed?.errors?.length ?? 0) > BULK_ERR_SHOW ? (
+                    <p className="text-[11px] text-slate-500">
+                      残り {csvParsed.errors.length - BULK_ERR_SHOW} 件の指摘があります
+                    </p>
+                  ) : null}
+                </div>
+              )
+            ) : !bulkJsonText.trim() ? (
+              <p className="text-sm text-slate-500 py-6 text-center rounded-xl bg-slate-50 border border-dashed border-slate-200">
+                JSON を貼り付けると、件数と構文チェック結果がここに出ます。
+              </p>
+            ) : jsonParsed?.ok ? (
+              <div className="space-y-3">
+                <span className="inline-flex items-center rounded-lg bg-emerald-50 border border-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-900">
+                  構文OK · {jsonParsed.rows.length} 件
+                </span>
+                {jsonParsed.rows.length > BULK_CHUNK ? (
+                  <p className="text-xs text-slate-600">
+                    送信は {Math.ceil(jsonParsed.rows.length / BULK_CHUNK)} 回に分かれます
+                  </p>
+                ) : null}
+                <pre className="rounded-xl bg-slate-900 text-slate-100 p-3 text-[11px] overflow-x-auto max-h-48">
+                  {JSON.stringify(jsonParsed.rows.slice(0, 3), null, 2)}
+                  {jsonParsed.rows.length > 3 ? '\n  …' : ''}
+                </pre>
+              </div>
+            ) : (
+              <p className="text-sm text-red-800 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                {jsonParsed?.err ?? '入力を確認してください'}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="surface-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="font-semibold text-slate-800 text-sm">登録済み一覧</h2>
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-bold text-slate-900">登録済み一覧</h2>
           <p className="text-xs text-slate-500">
             {loading ? '読み込み中…' : `${items.length} 件（有効 ${activeCount} / 無効 ${items.length - activeCount}）`}
           </p>
@@ -580,7 +857,6 @@ export default function AdminDevices() {
           </table>
         </div>
       </div>
-      </div>
-    </div>
+    </AdminLayout>
   );
 }
