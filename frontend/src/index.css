@@ -2,7 +2,77 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic', sans-serif;
-  background-color: #f8fafc;
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply text-slate-800;
+    font-family:
+      'Noto Sans JP',
+      'Hiragino Sans',
+      'Hiragino Kaku Gothic ProN',
+      'Yu Gothic',
+      sans-serif;
+    background-color: #f1f5f9;
+  }
+}
+
+@layer components {
+  /* 管理画面・ログイン共通 */
+  .app-admin-bg {
+    @apply min-h-screen bg-gradient-to-br from-slate-100 via-white to-sky-50/50;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-card shadow-slate-300/20;
+  }
+
+  .input-field {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm;
+    @apply placeholder:text-slate-400;
+    @apply focus:border-sky-500/70 focus:outline-none focus:ring-2 focus:ring-sky-500/25;
+    @apply transition-shadow duration-150;
+  }
+
+  .btn-primary-solid {
+    @apply inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-slate-900/15;
+    @apply hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply transition-colors duration-150;
+  }
+
+  .btn-secondary-outline {
+    @apply inline-flex items-center justify-center rounded-xl border-2 border-slate-800 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-sm;
+    @apply hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply transition-colors duration-150;
+  }
+
+  .admin-header-link {
+    @apply text-sm font-medium text-slate-600 underline-offset-4 hover:text-sky-800 hover:underline;
+  }
+
+  .btn-ghost-header {
+    @apply inline-flex items-center justify-center rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-xs font-medium text-white backdrop-blur-sm;
+    @apply hover:border-white/40 hover:bg-white/20 transition-colors duration-150;
+  }
+
+  .admin-nav-card {
+    @apply block rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition-all duration-200;
+    @apply hover:border-sky-300/60 hover:shadow-soft hover:-translate-y-0.5;
+  }
+
+  .admin-nav-card-emphasis {
+    @apply block rounded-2xl border-2 border-amber-300/90 bg-gradient-to-br from-amber-50 to-orange-50/80 p-4 shadow-md;
+    @apply hover:border-amber-400 hover:shadow-soft transition-all duration-200;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }

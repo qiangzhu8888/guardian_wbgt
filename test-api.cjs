@@ -1,12 +1,12 @@
 /**
  * BUILDICS API 接続テストスクリプト
- * 使い方: node test-api.cjs
+ * 使い方: BUILDICS_API_KEY=... node test-api.cjs
  */
 
 const https = require('https');
 
-const API_KEY = 'cVJHYmgrbWdzUEpBc3Y0SGl0ZE9VdzVsY0lBbmR1OGg=';
-const DEVICE_ID = '350976658106130';
+const API_KEY = process.env.BUILDICS_API_KEY || '';
+const DEVICE_ID = process.env.BUILDICS_TEST_DEVICE_ID || '350976658106130';
 
 function callApi(endpoint, body) {
   return new Promise((resolve, reject) => {
@@ -55,6 +55,11 @@ function wbgtToLevel(wbgt) {
 }
 
 async function main() {
+  if (!API_KEY) {
+    console.error('BUILDICS_API_KEY を環境変数で渡してください。例: set BUILDICS_API_KEY=... && node test-api.cjs');
+    process.exit(1);
+  }
+
   console.log('━'.repeat(50));
   console.log('  BUILDICS API 接続テスト');
   console.log('━'.repeat(50));
