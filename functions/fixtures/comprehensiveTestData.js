@@ -48,6 +48,8 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: '北里小学校グランド（屋外・代表）',
     sortOrder: 10,
+    placementType: 'outdoor',
+    venueCategory: 'school',
     address: '東京都港区北里 1-1',
     lat: 35.652,
     lng: 139.732,
@@ -58,6 +60,8 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: '北里保育園',
     sortOrder: 20,
+    placementType: 'outdoor',
+    venueCategory: 'childcare',
     address: '東京都港区北里 2-4',
     lat: 35.651,
     lng: 139.729,
@@ -68,6 +72,7 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: '休止施設（disabled・台帳検証）',
     sortOrder: 5,
+    venueCategory: 'other',
     address: '',
     lat: null,
     lng: null,
@@ -78,6 +83,8 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: '北門付近・暫定観測点',
     sortOrder: 15,
+    placementType: 'semi_outdoor',
+    venueCategory: 'construction_site',
     address: '北門前広場',
     lat: 35.6505,
     lng: 139.734,
@@ -88,6 +95,8 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: '北里小学校体育館（屋内・住所のみ）',
     sortOrder: 25,
+    placementType: 'indoor',
+    venueCategory: 'gym_stadium',
     address: '屋内競技場エリア',
     lat: null,
     lng: null,
@@ -98,6 +107,7 @@ const facilities = [
     orgId: DEFAULT_ORG_ID,
     name: 'くじら保育園',
     sortOrder: 30,
+    venueCategory: 'childcare',
     address: '',
     lat: null,
     lng: null,
@@ -108,6 +118,8 @@ const facilities = [
     orgId: ACME_ORG_ID,
     name: 'Acme 本社屋上',
     sortOrder: 1,
+    placementType: 'outdoor',
+    venueCategory: 'office',
     address: '大阪府大阪市北区 1-2-3',
     lat: 34.702,
     lng: 135.495,
@@ -118,6 +130,7 @@ const facilities = [
     orgId: ACME_ORG_ID,
     name: 'Acme 倉庫棟',
     sortOrder: 2,
+    venueCategory: 'warehouse',
     address: '',
     lat: null,
     lng: null,
@@ -211,7 +224,7 @@ function validateComprehensiveTestData() {
   for (const f of facilities) {
     const fid = f.facilityId;
     const oid = f.orgId;
-    const v = validateFacilityPayload(fid, f.name, f.sortOrder, f.address, f.lat, f.lng);
+    const v = validateFacilityPayload(fid, f.name, f.sortOrder, f.address, f.lat, f.lng, f.placementType, f.venueCategory);
     if (v) errors.push(`施設 ${fid}: ${v}`);
     if (!orgs.some((o) => o._docId === oid)) errors.push(`施設 ${fid}: 不明な orgId ${oid}`);
     if (!facByOrg.has(oid)) facByOrg.set(oid, new Map());

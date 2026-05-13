@@ -4,6 +4,7 @@ import {
   buildPublicConfigUrls,
   adminApiUrl,
   uploadAdminOrgLogo,
+  switchAdminOrg,
 } from './publicApi';
 
 describe('publicApi', () => {
@@ -57,6 +58,35 @@ describe('publicApi', () => {
       );
       const call = fetchMock.mock.calls[0];
       expect(call[1].body).toBe(file);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('switchAdminOrg posts JSON body with Bearer', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 200, accessToken: 'nt', user: { id: 'u', orgId: 'o2' } }),
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const out = await switchAdminOrg('tok', 'o2');
+      expect(out._ok).toBe(true);
+      expect(out.accessToken).toBe('nt');
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/auth/switch-org',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            Authorization: 'Bearer tok',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({ orgId: 'o2' }),
+        }),
+      );
     } finally {
       vi.unstubAllGlobals();
     }

@@ -34,7 +34,7 @@ describe('jwtEnv', () => {
 
   it('isEmulatorRuntime is true when FIRESTORE_EMULATOR_HOST is set', () => {
     delete process.env.FUNCTIONS_EMULATOR;
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:63130';
     expect(isEmulatorRuntime()).toBe(true);
   });
 
@@ -48,7 +48,7 @@ describe('jwtEnv', () => {
     delete process.env.FUNCTIONS_EMULATOR;
     delete process.env.JWT_ACCESS_SECRET;
     delete process.env.JWT_SECRET;
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:63130';
     expect(accessSecret()).toBe('local-emulator-access-secret');
   });
 
@@ -56,14 +56,14 @@ describe('jwtEnv', () => {
     delete process.env.FUNCTIONS_EMULATOR;
     delete process.env.JWT_REFRESH_SECRET;
     delete process.env.JWT_SECRET;
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:63130';
     expect(refreshSecret()).toBe('local-emulator-refresh-secret');
   });
 
   it('accessSecret prefers JWT_SECRET over emulator fallback', () => {
     delete process.env.JWT_ACCESS_SECRET;
     delete process.env.JWT_REFRESH_SECRET;
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:63130';
     process.env.JWT_SECRET = 'unified-dev-secret';
     expect(accessSecret()).toBe('unified-dev-secret');
     expect(refreshSecret()).toBe('unified-dev-secret');

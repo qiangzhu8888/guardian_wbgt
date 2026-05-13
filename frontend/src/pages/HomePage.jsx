@@ -15,13 +15,13 @@ export default function HomePage() {
           aria-hidden
         />
         <div className="text-center space-y-1">
-          <p className="text-sm font-semibold text-slate-700">設定を読み込み中</p>
-          <p className="text-xs text-slate-500">しばらくお待ちください</p>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">設定を読み込み中</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">しばらくお待ちください</p>
         </div>
         <button
           type="button"
           onClick={() => reload()}
-          className="text-sm font-medium text-sky-700 hover:text-sky-900 underline underline-offset-4"
+          className="text-sm font-medium text-sky-700 dark:text-sky-400 hover:text-sky-900 dark:hover:text-sky-300 underline underline-offset-4"
         >
           再試行
         </button>
@@ -36,7 +36,7 @@ export default function HomePage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-xl">
             ⚠
           </div>
-          <p className="text-sm font-medium text-red-800 leading-relaxed">{error}</p>
+          <p className="text-sm font-medium text-red-800 dark:text-red-200 leading-relaxed">{error}</p>
           <button
             type="button"
             onClick={() => reload()}

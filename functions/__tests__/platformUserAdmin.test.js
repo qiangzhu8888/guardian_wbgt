@@ -15,6 +15,7 @@ describe('platformUserAdmin', () => {
       userId: 'u1',
       email: 'a@b.c',
       orgId: 'o1',
+      orgIds: ['o1'],
       role: 'admin',
       createdAt: 1,
       updatedAt: null,

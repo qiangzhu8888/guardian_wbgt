@@ -5,14 +5,14 @@
  *
  * 前提:
  *   1) firebase emulators:start --only firestore （必要なら functions も）
- *   2) 環境変数 FIRESTORE_EMULATOR_HOST（例: 127.0.0.1:8080）を設定
+ *   2) 環境変数 FIRESTORE_EMULATOR_HOST（例: 127.0.0.1:63130、firebase.json と一致）を設定
  *
  * PowerShell:
- *   $env:FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"
+ *   $env:FIRESTORE_EMULATOR_HOST="127.0.0.1:63130"
  *   cd functions; npm run seed:test-data
  *
  * Bash:
- *   export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+ *   export FIRESTORE_EMULATOR_HOST=127.0.0.1:63130
  *   cd functions && npm run seed:test-data
  *
  * 続けて API を叩く場合は seed:admin で管理者を作成してから。
@@ -37,14 +37,16 @@ const {
   devices,
   validateComprehensiveTestData,
 } = require('../fixtures/comprehensiveTestData');
+const { toStoredFacilityPlacementType } = require('../lib/facilityPlacementType');
+const { toStoredFacilityVenueCategory } = require('../lib/facilityVenueCategory');
 
 function readDefaultProjectId() {
   const rc = path.join(__dirname, '..', '..', '.firebaserc');
   try {
     const j = JSON.parse(fs.readFileSync(rc, 'utf8'));
-    return j.projects?.default || 'wgbt-monitor';
+    return j.projects?.default || 'wbgt-monitor-d5556';
   } catch {
-    return 'wgbt-monitor';
+    return 'wbgt-monitor-d5556';
   }
 }
 
@@ -66,7 +68,7 @@ async function main() {
   const host = process.env.FIRESTORE_EMULATOR_HOST;
   if (!host) {
     console.error('[seed-test-data] FIRESTORE_EMULATOR_HOST が未設定です。');
-    console.error('  例: $env:FIRESTORE_EMULATOR_HOST="127.0.0.1:8080"');
+    console.error('  例: $env:FIRESTORE_EMULATOR_HOST="127.0.0.1:63130"');
     process.exit(1);
   }
 
@@ -112,6 +114,8 @@ async function main() {
         address: f.address != null ? String(f.address).slice(0, 500) : '',
         lat: f.lat != null && f.lat !== '' ? Number(f.lat) : null,
         lng: f.lng != null && f.lng !== '' ? Number(f.lng) : null,
+        placementType: toStoredFacilityPlacementType(f.placementType),
+        venueCategory: toStoredFacilityVenueCategory(f.venueCategory),
         disabled: f.disabled === true,
         updatedAt: now,
         createdAt: now,

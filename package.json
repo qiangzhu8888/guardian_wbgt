@@ -1,0 +1,15 @@
+{
+  "name": "sigma-top-wbgt",
+  "private": true,
+  "scripts": {
+    "bootstrap:first-admin": "npm run bootstrap:first-admin --prefix functions",
+    "seed:admin": "npm run seed:admin --prefix functions",
+    "secrets:set-bootstrap": "npm run secrets:set-bootstrap --prefix functions",
+    "local:emulators": "powershell -ExecutionPolicy Bypass -File scripts/start-firebase-emulators.ps1",
+    "local:dev": "powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend-dev.ps1",
+    "local:dev:all": "powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend-dev.ps1 -LaunchEmulators",
+    "deploy:functions": "powershell -ExecutionPolicy Bypass -File scripts/deploy-functions.ps1",
+    "deploy:production": "powershell -ExecutionPolicy Bypass -File scripts/deploy-production.ps1",
+    "test:acceptance": "powershell -ExecutionPolicy Bypass -File scripts/run-acceptance-tests.ps1"
+  }
+}

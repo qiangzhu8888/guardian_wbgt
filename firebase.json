@@ -4,7 +4,7 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
-    "site": "school-wgbt-monitor-30de2",
+    "site": "wbgt-monitor-d5556",
     "public": "frontend/dist",
     "ignore": [
       "firebase.json",
@@ -47,22 +47,38 @@
   },
   "functions": {
     "source": "functions",
-    "runtime": "nodejs22"
+    "runtime": "nodejs22",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      ".env",
+      ".env.*",
+      "*.local",
+      ".secret.local"
+    ]
   },
   "emulators": {
     "singleProjectMode": true,
+    "hub": {
+      "port": 63100
+    },
+    "logging": {
+      "port": 63110
+    },
     "functions": {
-      "port": 5001
+      "port": 65001
     },
     "firestore": {
-      "port": 8080
+      "port": 63130
     },
     "hosting": {
       "port": 5000
     },
     "ui": {
       "enabled": true,
-      "port": 4000
+      "port": 63140
     }
   }
 }

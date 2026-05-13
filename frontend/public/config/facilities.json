@@ -1,6 +1,6 @@
 {
   "orgId": "default",
-  "title": "北里地区 熱中症監視システム",
+  "title": "熱中症監視システム BUILDICS-GUARDIAN",
   "subtitle": "静的フォールバック: 危険度レベル網羅デモ（Firestore 未接続時）",
   "deviceMappings": [
     { "deviceId": "350976658106130", "facilityId": 1 },

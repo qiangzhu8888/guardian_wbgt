@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout';
+import DeviceIdQrScannerModal from '../components/DeviceIdQrScannerModal';
 import {
   parseDeviceBulkCsv,
   DEVICE_BULK_CSV_TEMPLATE,
@@ -40,6 +41,7 @@ export default function AdminDevices() {
   const [fileKey, setFileKey] = useState(0);
   const [bulkBatch, setBulkBatch] = useState(null);
   const [csvDragOver, setCsvDragOver] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   async function loadFacilities() {
     const token = getToken();
@@ -340,7 +342,7 @@ export default function AdminDevices() {
             先に <Link to="/admin/facilities" className="text-sky-800 underline font-semibold">場所を登録</Link>
             しておきます。
           </li>
-          <li>下のフォームまたは CSV でデバイスを追加します（既存 ID と重複するとエラーになります）。</li>
+          <li>下のフォーム（QR スキャン可）または CSV でデバイスを追加します（既存 ID と重複するとエラーになります）。</li>
           <li>一覧の「紐付け場所」から、あとから別の場所へ変更できます。</li>
         </ol>
       </div>
@@ -371,21 +373,33 @@ export default function AdminDevices() {
       <div className="surface-card p-5 sm:p-6 mb-6">
         <h2 className="admin-card-section-title mb-1">1 件ずつ登録</h2>
         <p className="text-xs text-slate-500 mb-4">
-          デバイス ID は 6〜24 桁の数字です。表示名（ラベル）は任意です。
+          デバイス ID は 6〜24 桁の数字です。カメラで QR を読み取ることもできます。表示名（ラベル）は任意です。
         </p>
         <form onSubmit={addOne} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="sm:col-span-2 lg:col-span-1">
             <label htmlFor="adm-dev-id" className="block text-xs font-semibold text-slate-600 mb-1">
               デバイス ID
             </label>
-            <input
-              id="adm-dev-id"
-              placeholder="例: 350976658106130"
-              className="input-field"
-              value={deviceId}
-              onChange={(e) => setDeviceId(e.target.value)}
-              autoComplete="off"
-            />
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                id="adm-dev-id"
+                placeholder="例: 350976658106130"
+                className="input-field flex-1 min-w-0"
+                value={deviceId}
+                onChange={(e) => setDeviceId(e.target.value)}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setErr('');
+                  setQrOpen(true);
+                }}
+                className="btn-secondary-outline shrink-0 px-3 py-2 text-xs font-semibold whitespace-nowrap"
+              >
+                QR スキャン
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="adm-fac" className="block text-xs font-semibold text-slate-600 mb-1">
@@ -857,6 +871,15 @@ export default function AdminDevices() {
           </table>
         </div>
       </div>
+      <DeviceIdQrScannerModal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        onDecoded={(id) => {
+          setDeviceId(id);
+          setErr('');
+          queueMicrotask(() => document.getElementById('adm-dev-id')?.focus());
+        }}
+      />
     </AdminLayout>
   );
 }

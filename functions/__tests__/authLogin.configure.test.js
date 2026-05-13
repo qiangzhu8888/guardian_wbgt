@@ -71,7 +71,7 @@ describe('/api/auth/login', () => {
   });
 
   it('returns 200 when only FIRESTORE_EMULATOR_HOST is set (jwt fallback)', async () => {
-    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080';
+    process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:63130';
     process.env.BUILDICS_API_KEY = process.env.BUILDICS_API_KEY || 'test';
     const { createApiApp } = require('../apiServer');
     const app = createApiApp();

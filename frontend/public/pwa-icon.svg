@@ -5,13 +5,14 @@
   <circle cx="256" cy="352" r="36" fill="#f97316"/>
   <text
     x="256"
-    y="430"
+    y="402"
     text-anchor="middle"
     fill="#94a3b8"
     font-family="system-ui,sans-serif"
-    font-size="48"
+    font-size="26"
     font-weight="700"
   >
-    WBGT
+    <tspan x="256" dy="0">熱中症監視システム</tspan>
+    <tspan x="256" dy="34">BUILDICS-GUARDIAN</tspan>
   </text>
 </svg>

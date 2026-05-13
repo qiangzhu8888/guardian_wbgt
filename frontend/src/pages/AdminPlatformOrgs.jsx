@@ -26,6 +26,40 @@ function formatTs(ts) {
   }
 }
 
+/** @param {Record<string, unknown>} row */
+export function normalizeUserOrgIds(row) {
+  /** @type {string[]} */
+  const out = [];
+  const pushUnique = (id) => {
+    const s = String(id || '').trim();
+    if (!s || out.includes(s)) return;
+    out.push(s);
+  };
+  const raw = row.orgIds;
+  if (Array.isArray(raw)) {
+    for (const x of raw)
+      pushUnique(typeof x === 'string' ? x : x?.orgId ?? x?.id ?? null);
+  }
+  pushUnique(row.orgId);
+  return out;
+}
+
+/** @param {Record<string, unknown>} row */
+function formatUserOrgScopeCell(row) {
+  const ids = normalizeUserOrgIds(row);
+  if (!ids.length) return '—';
+  if (ids.length === 1) return ids[0];
+  const p = String(row.orgId || '').trim();
+  if (p && ids.includes(p)) {
+    return (
+      <>
+        <span className="font-mono">{p}</span>
+        <span className="text-slate-500 font-normal">{` （他 ${ids.length - 1}）`}</span>
+      </>
+    );
+  }
+  return <span className="font-mono">{ids.join(', ')}</span>;
+}
 export default function AdminPlatformOrgs() {
   const nav = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -48,6 +82,8 @@ export default function AdminPlatformOrgs() {
   const [editOrgId, setEditOrgId] = useState('');
   const [editRole, setEditRole] = useState('admin');
   const [editPassword, setEditPassword] = useState('');
+  /** 編集時: admin/viewer のアクセス可能 orgId 一覧 */
+  const [editMembershipIds, setEditMembershipIds] = useState(/** @type {string[]} */ ([]));
   const [editSaving, setEditSaving] = useState(false);
 
   const sessionUser = getAuthUser();
@@ -93,12 +129,22 @@ export default function AdminPlatformOrgs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!editOpenId) return;
+    setEditOrgId((cur) => {
+      const c = String(cur || '').trim();
+      if (editMembershipIds.includes(c)) return c;
+      return editMembershipIds[0] || '';
+    });
+  }, [editMembershipIds, editOpenId]);
+
   function closeEdit() {
     setEditOpenId(null);
     setEditEmail('');
     setEditOrgId('');
     setEditRole('admin');
     setEditPassword('');
+    setEditMembershipIds([]);
   }
 
   function openEdit(row) {
@@ -106,9 +152,27 @@ export default function AdminPlatformOrgs() {
     setOkMsg('');
     setEditOpenId(String(row.userId));
     setEditEmail(String(row.email || ''));
-    setEditOrgId(String(row.orgId || ''));
+    const ids = normalizeUserOrgIds(row);
+    setEditMembershipIds(ids.length ? ids : [String(row.orgId || '')].filter(Boolean));
+    setEditOrgId(String(row.orgId || ids[0] || ''));
     setEditRole(String(row.role || 'viewer'));
     setEditPassword('');
+  }
+
+  /**
+   * @param {string} orgIdVal
+   * @param {boolean} checked
+   */
+  function toggleEditMembership(orgIdVal, checked) {
+    const id = String(orgIdVal || '').trim();
+    if (!id) return;
+    setEditMembershipIds((prev) => {
+      const base = prev.map(String).filter(Boolean);
+      let next = checked ? [...base, id] : base.filter((x) => x !== id);
+      next = [...new Set(next)];
+      if (!checked && next.length === 0) return base;
+      return next;
+    });
   }
 
   async function onSaveEdit(e) {
@@ -122,14 +186,27 @@ export default function AdminPlatformOrgs() {
     setErr('');
     setOkMsg('');
     setEditSaving(true);
-    /** @type {Record<string, string>} */
+    /** @type {Record<string, unknown>} */
     const body = {};
     if (isSuper) {
       body.email = editEmail.trim().toLowerCase();
       if (editPassword.trim()) body.password = editPassword;
     } else {
       body.email = editEmail.trim().toLowerCase();
-      body.orgId = editOrgId.trim();
+      const membership = [...new Set(editMembershipIds.map((x) => String(x || '').trim()).filter(Boolean))];
+      if (membership.length === 0) {
+        setEditSaving(false);
+        setErr('アクセス可能な組織を1つ以上選んでください');
+        return;
+      }
+      const primary = editOrgId.trim();
+      if (!membership.includes(primary)) {
+        setEditSaving(false);
+        setErr('「既定の組織」は、チェックした組織のいずれかを選んでください');
+        return;
+      }
+      body.orgIds = membership;
+      body.orgId = primary;
       body.role = editRole;
       if (editPassword.trim()) body.password = editPassword;
     }
@@ -371,13 +448,14 @@ export default function AdminPlatformOrgs() {
             <h2 className="text-sm font-bold text-slate-900 mb-1">登録済みユーザー</h2>
             <p className="text-xs text-slate-500 mb-3">
               全テナントのログインアカウントです。<strong>superadmin</strong> はメール・パスワードのみ変更できます（最後の1人は削除不可）。
+              <strong className="text-slate-600"> admin / viewer</strong> は編集で複数組織を付与でき、ユーザーの管理画面で組織を切り替えられます。
             </p>
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-xs sm:text-sm min-w-[520px]">
                 <thead>
                   <tr className="text-left text-slate-600 border-b border-slate-200">
                     <th className="py-2 pr-2 font-semibold">メール</th>
-                    <th className="py-2 pr-2 font-semibold whitespace-nowrap">組織 ID</th>
+                    <th className="py-2 pr-2 font-semibold whitespace-nowrap">組織</th>
                     <th className="py-2 pr-2 font-semibold">ロール</th>
                     <th className="py-2 pr-2 font-semibold whitespace-nowrap hidden sm:table-cell">作成</th>
                     <th className="py-2 font-semibold text-right">操作</th>
@@ -396,7 +474,9 @@ export default function AdminPlatformOrgs() {
                             <span className="block text-[10px] text-sky-700 font-medium mt-0.5">ログイン中</span>
                           ) : null}
                         </td>
-                        <td className="py-2 pr-2 font-mono align-top">{String(row.orgId || '')}</td>
+                        <td className="py-2 pr-2 align-top text-xs font-mono leading-snug">
+                          {formatUserOrgScopeCell(row)}
+                        </td>
                         <td className="py-2 pr-2 align-top">
                           {role === 'superadmin' ? (
                             <span className="text-violet-800 bg-violet-50 border border-violet-100 px-1.5 py-0.5 rounded text-[11px] font-medium">
@@ -457,22 +537,82 @@ export default function AdminPlatformOrgs() {
                 </label>
                 {!editingIsSuper ? (
                   <>
+                    <fieldset className="border border-slate-200 rounded-xl p-3 space-y-2">
+                      <legend className="text-xs font-semibold text-slate-600 px-1">アクセス可能な組織</legend>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        チェックした組織にログイン後、ヘッダーから切り替え可能です。最後の1つは外せません。
+                      </p>
+                      <ul className="space-y-2 max-h-48 overflow-y-auto">
+                        {items.map((o) => {
+                          const oid = String(o.orgId);
+                          const checked = editMembershipIds.includes(oid);
+                          const onlyOne = editMembershipIds.length === 1 && checked;
+                          return (
+                            <li key={oid} className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                id={`edit-org-${oid}`}
+                                className="mt-1 rounded border-slate-300"
+                                checked={checked}
+                                disabled={onlyOne}
+                                onChange={(ev) => toggleEditMembership(oid, ev.target.checked)}
+                              />
+                              <label htmlFor={`edit-org-${oid}`} className="text-xs cursor-pointer leading-snug">
+                                <span className="font-mono font-medium text-slate-800">{oid}</span>
+                                <span className="text-slate-500">{` · ${String(o.slug ?? '')}`}</span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                        {editMembershipIds
+                          .filter((mid) => !items.some((o) => String(o.orgId) === mid))
+                          .map((mid) => {
+                            const checked = editMembershipIds.includes(mid);
+                            const onlyOne = editMembershipIds.length === 1 && checked;
+                            return (
+                              <li key={`orph-${mid}`} className="flex items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  id={`edit-org-orph-${mid}`}
+                                  className="mt-1 rounded border-amber-400"
+                                  checked={checked}
+                                  disabled={onlyOne}
+                                  onChange={(ev) => toggleEditMembership(mid, ev.target.checked)}
+                                />
+                                <label htmlFor={`edit-org-orph-${mid}`} className="text-xs cursor-pointer leading-snug">
+                                  <span className="font-mono font-medium text-amber-950">{mid}</span>
+                                  <span className="text-amber-900/90">（プラットフォーム組織一覧に無し）</span>
+                                </label>
+                              </li>
+                            );
+                          })}
+                      </ul>
+                      {editMembershipIds.some((mid) => !items.some((o) => String(o.orgId) === mid)) ? (
+                        <p className="text-[11px] text-amber-800 bg-amber-50 rounded-lg px-2 py-1.5 border border-amber-100">
+                          一覧に無い組織 ID は保存時にバックエンドで拒否されます。チェックを外すか、先に「新規組織」で登録してください。
+                        </p>
+                      ) : null}
+                    </fieldset>
                     <label className="block">
-                      <span className="text-xs font-semibold text-slate-600">所属組織 ID</span>
+                      <span className="text-xs font-semibold text-slate-600">既定の組織（トークンのスコープ）</span>
                       <select
                         value={editOrgId}
                         onChange={(ev) => setEditOrgId(ev.target.value)}
                         className="input-field mt-1.5 font-mono text-[13px]"
                         required
                       >
-                        {!items.some((o) => String(o.orgId) === editOrgId) && editOrgId ? (
-                          <option value={editOrgId}>{editOrgId}（一覧にない組織）</option>
-                        ) : null}
-                        {items.map((o) => (
-                          <option key={String(o.orgId)} value={String(o.orgId)}>
-                            {String(o.orgId)} ({String(o.slug)})
+                        {editMembershipIds.filter((mid) => !items.some((o) => String(o.orgId) === mid)).map((mid) => (
+                          <option key={mid} value={mid}>
+                            {mid}（一覧外）
                           </option>
                         ))}
+                        {items
+                          .filter((o) => editMembershipIds.includes(String(o.orgId)))
+                          .map((o) => (
+                            <option key={String(o.orgId)} value={String(o.orgId)}>
+                              {String(o.orgId)} ({String(o.slug)})
+                            </option>
+                          ))}
                       </select>
                     </label>
                     <label className="block">

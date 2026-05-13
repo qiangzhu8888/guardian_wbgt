@@ -37,6 +37,24 @@ export function adminApiUrl(path) {
 }
 
 /**
+ * 操作中の組織を切り替える（Firestore の users の orgId も同期）
+ * @param {string} accessToken
+ * @param {string} orgId 切り替え先の org ID
+ */
+export async function switchAdminOrg(accessToken, orgId) {
+  const res = await fetch(adminApiUrl('/api/auth/switch-org'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ orgId }),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
  * @param {string} accessToken
  * @returns {Promise<{ code: number, data?: object, msg?: string }>}
  */
@@ -142,7 +160,7 @@ export async function fetchPlatformUsers(accessToken) {
 /**
  * @param {string} accessToken
  * @param {string} userId
- * @param {{ email?: string, password?: string, orgId?: string, role?: string }} body
+ * @param {{ email?: string, password?: string, orgId?: string, orgIds?: string[], role?: string }} body
  */
 export async function patchPlatformUser(accessToken, userId, body) {
   const res = await fetch(adminApiUrl(`/api/admin/platform/users/${encodeURIComponent(userId)}`), {

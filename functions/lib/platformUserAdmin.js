@@ -1,5 +1,7 @@
 'use strict';
 
+const { normalizeOrgIds } = require('./userOrgScope');
+
 /**
  * プラットフォーム管理画面用（シークレットを含まない）
  * @param {string} id
@@ -11,6 +13,7 @@ function stripUserForPlatformList(id, data) {
     userId: id,
     email: d.email != null ? String(d.email) : '',
     orgId: d.orgId != null ? String(d.orgId) : '',
+    orgIds: normalizeOrgIds(d),
     role: d.role != null ? String(d.role) : 'viewer',
     createdAt: d.createdAt ?? null,
     updatedAt: d.updatedAt ?? null,

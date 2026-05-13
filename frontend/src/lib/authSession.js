@@ -2,7 +2,15 @@ import { adminApiUrl } from './publicApi';
 
 /**
  * 管理ログイン後のユーザー情報（role 判定用）
- * @returns {{ id: string, email: string, role: string, orgId: string, orgSlug?: string } | null}
+ * @returns {{
+ *   id: string,
+ *   email: string,
+ *   role: string,
+ *   orgId: string,
+ *   orgSlug?: string,
+ *   orgIds?: string[],
+ *   orgs?: Array<{ orgId: string, orgSlug: string }>
+ * } | null}
  */
 export function getAuthUser() {
   try {

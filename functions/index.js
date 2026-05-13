@@ -1,5 +1,8 @@
 'use strict';
 
+const { loadFunctionsDotEnv } = require('./lib/loadLocalEnv');
+loadFunctionsDotEnv();
+
 const admin = require('firebase-admin');
 const { onRequest } = require('firebase-functions/v2/https');
 const { createApiApp } = require('./apiServer');

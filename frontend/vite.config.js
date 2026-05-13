@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { APP_DISPLAY_NAME } from './src/lib/appBranding.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const version = readFileSync(resolve(__dirname, '../VERSION'), 'utf8').trim();
@@ -22,9 +23,9 @@ export default defineConfig({
         'config/facilities.json',
       ],
       manifest: {
-        name: 'WBGT 熱中症監視',
-        short_name: '熱中症監視',
-        description: 'BUILDICS 連携の WBGT（暑さ指数）モニタリング',
+        name: APP_DISPLAY_NAME,
+        short_name: APP_DISPLAY_NAME,
+        description: '熱中症監視システム BUILDICS-GUARDIAN — BUILDICS 連携の WBGT（暑さ指数）モニタリング',
         theme_color: '#0f172a',
         background_color: '#f1f5f9',
         display: 'standalone',
@@ -73,6 +74,10 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
+  /** 動的 import した依存のプリバンドルずれで「504 Outdated Optimize Dep」になるのを防ぐ */
+  optimizeDeps: {
+    include: ['html5-qrcode', 'react-qr-code'],
+  },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{js,jsx}'],
@@ -86,9 +91,9 @@ export default defineConfig({
         secure: true,
       },
       '/api': {
-        target: 'http://127.0.0.1:5001',
+        target: 'http://127.0.0.1:65001',
         changeOrigin: true,
-        rewrite: (path) => `/wgbt-monitor/asia-northeast1/api${path}`,
+        rewrite: (path) => `/wbgt-monitor-d5556/asia-northeast1/api${path}`,
       },
     },
   },
