@@ -5,6 +5,7 @@ const {
   normalizeOrgSlugQuery,
   defaultOrgSlug,
   resolvePublicOrg,
+  getOrgSlugForOrgId,
 } = require('../lib/orgResolve');
 
 describe('orgResolve', () => {
@@ -67,5 +68,52 @@ describe('orgResolve', () => {
       if (prevSlug === undefined) delete process.env.DEFAULT_ORG_SLUG;
       else process.env.DEFAULT_ORG_SLUG = prevSlug;
     }
+  });
+
+  it('getOrgSlugForOrgId reads slug from orgs doc', async () => {
+    const db = {
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({
+            exists: true,
+            data: () => ({ slug: 'Acme-Corp' }),
+          }),
+        }),
+      }),
+    };
+    await expect(getOrgSlugForOrgId(db, 'org-1')).resolves.toBe('acme-corp');
+  });
+
+  it('getOrgSlugForOrgId falls back when doc missing and id is default', async () => {
+    const prevId = process.env.DEFAULT_ORG_ID;
+    const prevSlug = process.env.DEFAULT_ORG_SLUG;
+    process.env.DEFAULT_ORG_ID = 'default';
+    process.env.DEFAULT_ORG_SLUG = 'my-tenant';
+    const db = {
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({ exists: false }),
+        }),
+      }),
+    };
+    try {
+      await expect(getOrgSlugForOrgId(db, 'default')).resolves.toBe('my-tenant');
+    } finally {
+      if (prevId === undefined) delete process.env.DEFAULT_ORG_ID;
+      else process.env.DEFAULT_ORG_ID = prevId;
+      if (prevSlug === undefined) delete process.env.DEFAULT_ORG_SLUG;
+      else process.env.DEFAULT_ORG_SLUG = prevSlug;
+    }
+  });
+
+  it('getOrgSlugForOrgId uses orgId as slug when valid and doc missing', async () => {
+    const db = {
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({ exists: false }),
+        }),
+      }),
+    };
+    await expect(getOrgSlugForOrgId(db, 'school-a')).resolves.toBe('school-a');
   });
 });

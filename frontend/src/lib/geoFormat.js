@@ -19,7 +19,3 @@ export function parseDraftLatLng(draftLat, draftLng) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { lat, lng };
 }
-
-/** 場所追加フォームの初期値・登録後リセット用（東京都庁付近） */
-export const DEFAULT_TOKYO_LAT = '35.6812';
-export const DEFAULT_TOKYO_LNG = '139.7671';

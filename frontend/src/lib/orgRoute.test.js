@@ -3,6 +3,7 @@ import {
   publicConfigQueryString,
   normalizeOrgSlugParam,
   monitorHomePath,
+  publicOrgDashboardAbsoluteUrl,
 } from './orgRoute';
 
 describe('orgRoute', () => {
@@ -23,6 +24,13 @@ describe('orgRoute', () => {
   });
 
   it('monitorHomePath', () => {
-    expect(monitorHomePath('school-a')).toBe('/o/school-a');
+    expect(monitorHomePath('school-a')).toBe('/tenant/school-a');
+    expect(monitorHomePath()).toBe('/tenant/acme');
+    expect(monitorHomePath(undefined)).toBe('/tenant/acme');
+  });
+
+  it('publicOrgDashboardAbsoluteUrl uses VITE_PUBLIC_APP_ORIGIN and strips trailing slash', () => {
+    vi.stubEnv('VITE_PUBLIC_APP_ORIGIN', 'https://monitor.example.jp/');
+    expect(publicOrgDashboardAbsoluteUrl('techsor')).toBe('https://monitor.example.jp/tenant/techsor');
   });
 });

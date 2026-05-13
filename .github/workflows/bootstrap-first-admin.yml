@@ -1,0 +1,28 @@
+# 手動実行: 初回だけ POST /api/auth/bootstrap（初回ユーザーの role は superadmin。既にユーザーがいれば 409 で成功終了）
+#
+# リポジトリ Settings → Secrets and variables → Actions に次を登録:
+#   BOOTSTRAP_BASE_URL        例: https://wbgt-monitor-d5556.web.app （末尾スラッシュなし）
+#   AUTH_BOOTSTRAP_SECRET     Functions の AUTH_BOOTSTRAP_SECRET と同一
+#   BOOTSTRAP_ADMIN_EMAIL
+#   BOOTSTRAP_ADMIN_PASSWORD  8文字以上
+#
+name: Bootstrap first admin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run bootstrap-first-admin (idempotent)
+        env:
+          BOOTSTRAP_BASE_URL: ${{ secrets.BOOTSTRAP_BASE_URL }}
+          AUTH_BOOTSTRAP_SECRET: ${{ secrets.AUTH_BOOTSTRAP_SECRET }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: node functions/scripts/bootstrap-first-admin.cjs

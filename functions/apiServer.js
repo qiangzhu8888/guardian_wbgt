@@ -3,7 +3,6 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 const defaultPublicConfig = require('./defaults/publicConfig.json');
@@ -14,13 +13,30 @@ const {
   extractDeviceIdsFromBuildicsBody,
 } = require('./lib/buildicsProxyRules');
 const { validateFacilityPayload } = require('./lib/facilityValidation');
-const { resolvePublicOrg } = require('./lib/orgResolve');
+const { facilityCreateConflictMessage } = require('./lib/facilityDuplicateMsg');
+const {
+  toStoredFacilityPlacementType,
+  validateFacilityPlacementTypeInput,
+} = require('./lib/facilityPlacementType');
+const {
+  toStoredFacilityVenueCategory,
+  validateFacilityVenueCategoryInput,
+} = require('./lib/facilityVenueCategory');
+const { normalizeAuthBootstrapSecret } = require('./lib/bootstrapSecretNormalize');
+const { resolvePublicOrg, getOrgSlugForOrgId } = require('./lib/orgResolve');
+const {
+  normalizeOrgIds,
+  assertOrgIdsValid,
+  userMayAccessOrg,
+  syncPrimaryOrgWithList,
+} = require('./lib/userOrgScope');
 const {
   createOrgDocument,
   stripOrgForList,
   ERROR_MSG_JA: platformOrgErrorMsg,
   isValidOrgIdForDoc,
 } = require('./lib/platformOrg');
+const { stripUserForPlatformList, countSuperadmins } = require('./lib/platformUserAdmin');
 const {
   mergeOrgDashboardIntoConfig,
   buildAdminOrgSettingsResponse,
@@ -28,11 +44,33 @@ const {
   normalizeBuildicsApiKeyPatch,
   getBuildicsApiKeyForLedger,
 } = require('./lib/orgDashboardMerge');
+const { uploadOrgLogoBuffer, deleteManagedOrgLogoObject } = require('./lib/orgLogoStorage');
+const {
+  uploadFacilityInstallationPhotoBuffer,
+  deleteManagedFacilityInstallationPhoto,
+} = require('./lib/facilityPhotoStorage');
+const { geocodeAddressWithGsi } = require('./lib/gsiGeocode');
+const { signAccess, signRefresh, verifyAccess, verifyRefresh } = require('./lib/jwtEnv');
 
 const BUILDICS_API_BASE = 'https://www.buildics.jp/api';
 
+/** Firebase Storage の設置写真 URL のみ公開設定へ載せる（任意 URL の混入を防止） */
+function publicInstallationPhotoUrl(data) {
+  const u =
+    typeof data.installationPhotoUrl === 'string' ? data.installationPhotoUrl.trim().slice(0, 2048) : '';
+  if (!u) return null;
+  try {
+    const x = new URL(u);
+    if (x.protocol !== 'https:' || x.hostname !== 'firebasestorage.googleapis.com') return null;
+    return u;
+  } catch {
+    return null;
+  }
+}
+
 function facilityToMockCard(id, data) {
   const name = (data.name || `施設 ${id}`).trim();
+  const pic = publicInstallationPhotoUrl(data);
   return {
     id,
     name,
@@ -45,9 +83,12 @@ function facilityToMockCard(id, data) {
     humidity: 65,
     updated: '—',
     isMock: true,
+    placementType: toStoredFacilityPlacementType(data.placementType),
+    venueCategory: toStoredFacilityVenueCategory(data.venueCategory),
     ...(data.address ? { address: String(data.address).slice(0, 500) } : {}),
     ...(Number.isFinite(Number(data.lat)) ? { lat: Number(data.lat) } : {}),
     ...(Number.isFinite(Number(data.lng)) ? { lng: Number(data.lng) } : {}),
+    ...(pic ? { installationPhotoUrl: pic } : {}),
   };
 }
 
@@ -100,56 +141,20 @@ function applyCors(res, headers) {
   res.set('Vary', 'Origin');
 }
 
-function accessSecret() {
-  return (
-    process.env.JWT_ACCESS_SECRET ||
-    process.env.JWT_SECRET ||
-    (process.env.FUNCTIONS_EMULATOR === 'true' ? 'local-emulator-access-secret' : null)
-  );
-}
-
-function refreshSecret() {
-  return (
-    process.env.JWT_REFRESH_SECRET ||
-    process.env.JWT_SECRET ||
-    (process.env.FUNCTIONS_EMULATOR === 'true' ? 'local-emulator-refresh-secret' : null)
-  );
-}
-
-function signAccess(payload) {
-  const sec = accessSecret();
-  if (!sec) throw new Error('JWT access secret not configured');
-  return jwt.sign(payload, sec, {
-    algorithm: 'HS256',
-    expiresIn: '15m',
-  });
-}
-
-function signRefresh(payload) {
-  const sec = refreshSecret();
-  if (!sec) throw new Error('JWT refresh secret not configured');
-  return jwt.sign({ ...payload, typ: 'refresh' }, sec, {
-    algorithm: 'HS256',
-    expiresIn: '7d',
-  });
-}
-
-function verifyAccess(token) {
-  const sec = accessSecret();
-  if (!sec) throw new Error('JWT not configured');
-  return jwt.verify(token, sec, { algorithms: ['HS256'] });
-}
-
-function verifyRefresh(token) {
-  const sec = refreshSecret();
-  if (!sec) throw new Error('JWT not configured');
-  const d = jwt.verify(token, sec, { algorithms: ['HS256'] });
-  if (d.typ !== 'refresh') throw new Error('invalid refresh');
-  return d;
+function isJwtConfigError(err) {
+  const m = err && err.message ? String(err.message) : '';
+  return m.includes('JWT') || m.includes('secret not configured');
 }
 
 function orgId() {
   return process.env.DEFAULT_ORG_ID || 'default';
+}
+
+/** ヘッダと環境変数の前後空白・BOM・誤貼り付けを無視して比較 */
+function verifyBootstrapSecret(req) {
+  const got = normalizeAuthBootstrapSecret(req.get('X-Bootstrap-Secret'));
+  const expected = normalizeAuthBootstrapSecret(process.env.AUTH_BOOTSTRAP_SECRET);
+  return Boolean(got && expected && got === expected);
 }
 
 async function loadPublicConfigFromFirestore(oid) {
@@ -227,6 +232,36 @@ async function appendDeviceAudit(user, action, payload) {
   }
 }
 
+/**
+ * ログイン／refresh／switch-org で返すユーザー JSON（シークレットなし）
+ * @param {FirebaseFirestore.Firestore} db
+ * @param {string} userId
+ * @param {FirebaseFirestore.DocumentData | undefined} u
+ */
+async function buildAdminAuthUserResponse(db, userId, u) {
+  const normalizedList = normalizeOrgIds(u);
+  const { orgId: primaryOid, orgIds } = syncPrimaryOrgWithList(
+    normalizedList,
+    String(u.orgId || '').trim() || undefined,
+  );
+  const orgSlug = await getOrgSlugForOrgId(db, primaryOid);
+  const orgs = await Promise.all(
+    orgIds.map(async (oid) => ({
+      orgId: oid,
+      orgSlug: await getOrgSlugForOrgId(db, oid),
+    })),
+  );
+  return {
+    id: userId,
+    email: u.email != null ? String(u.email) : '',
+    role: u.role != null ? String(u.role) : 'viewer',
+    orgId: primaryOid,
+    orgSlug,
+    orgIds,
+    orgs,
+  };
+}
+
 async function assertDevicesInLedger(deviceIds, ledgerOrgId) {
   if (process.env.RELAX_DEVICE_SCOPE === 'true') return;
   if (!deviceIds.length) return;
@@ -249,6 +284,16 @@ function createApiApp() {
   const app = express();
   app.use(express.json({ limit: MAX_BODY_JSON }));
   app.use(cookieParser());
+
+  const orgLogoRawBody = express.raw({
+    type: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'],
+    limit: '2mb',
+  });
+
+  const facilityPhotoRawBody = express.raw({
+    type: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'],
+    limit: '5mb',
+  });
 
   app.use((req, res, next) => {
     if (req.method === 'OPTIONS') {
@@ -279,7 +324,8 @@ function createApiApp() {
   /**
    * @param {string | string[] | null | undefined} requiredRole
    * - `admin`: `admin` と `superadmin` を許可（通常の管理 API）
-   * - `['superadmin']`: プラットフォーム API 用
+   * - `['superadmin']`: プラットフォーム API（配列時は完全一致）
+   * - `['admin','viewer','superadmin']` など: 列挙ロールのみ（例: 組織切替）
    */
   function requireAuth(requiredRole) {
     return (req, res, next) => {
@@ -323,47 +369,85 @@ function createApiApp() {
     if (!email || !password) {
       return res.status(400).json({ code: 400, msg: 'email と password が必要です' });
     }
-    const db = getFirestore();
-    const q = await db.collection('users').where('email', '==', email).limit(1).get();
-    if (q.empty) {
-      return res.status(401).json({ code: 401, msg: '認証に失敗しました' });
-    }
-    const doc = q.docs[0];
-    const u = doc.data();
-    const ok = await bcrypt.compare(password, u.passwordHash || '');
-    if (!ok) return res.status(401).json({ code: 401, msg: '認証に失敗しました' });
+    try {
+      const db = getFirestore();
+      const q = await db.collection('users').where('email', '==', email).limit(1).get();
+      if (q.empty) {
+        return res.status(401).json({ code: 401, msg: '認証に失敗しました' });
+      }
+      const doc = q.docs[0];
+      const u = doc.data();
+      const ok = await bcrypt.compare(password, u.passwordHash || '');
+      if (!ok) return res.status(401).json({ code: 401, msg: '認証に失敗しました' });
 
-    const payload = { sub: doc.id, role: u.role || 'viewer', orgId: u.orgId || orgId() };
-    const accessToken = signAccess(payload);
-    const refreshToken = signRefresh({ sub: doc.id });
-    res.cookie('refresh_token', refreshToken, {
-      httpOnly: true,
-      secure: process.env.COOKIE_SECURE === 'true',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 3600 * 1000,
-      path: '/',
-    });
-    res.json({
-      code: 200,
-      accessToken,
-      user: { id: doc.id, email: u.email, role: payload.role, orgId: payload.orgId },
-    });
+      const { orgId: jwtOrgId } = syncPrimaryOrgWithList(
+        normalizeOrgIds(u),
+        String(u.orgId || '').trim() || undefined,
+      );
+      const payload = { sub: doc.id, role: u.role || 'viewer', orgId: jwtOrgId };
+      const accessToken = signAccess(payload);
+      const refreshToken = signRefresh({ sub: doc.id });
+      const userJson = await buildAdminAuthUserResponse(db, doc.id, u);
+      res.cookie('refresh_token', refreshToken, {
+        httpOnly: true,
+        secure: process.env.COOKIE_SECURE === 'true',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 3600 * 1000,
+        path: '/',
+      });
+      res.json({
+        code: 200,
+        accessToken,
+        user: userJson,
+      });
+    } catch (e) {
+      if (isJwtConfigError(e)) {
+        console.warn('auth login: JWT secrets not configured (set JWT_* or run Firebase emulators)');
+        return res.status(503).json({
+          code: 503,
+          msg:
+            '認証トークンの設定が不完全です。functions/.env に JWT_ACCESS_SECRET と JWT_REFRESH_SECRET（または JWT_SECRET）を設定してください。',
+        });
+      }
+      console.error('auth login', e);
+      return res.status(500).json({ code: 500, msg: 'ログイン処理に失敗しました。しばらくしてからお試しください。' });
+    }
   });
 
   app.post('/api/auth/refresh', async (req, res) => {
     applyCors(res, corsHeaders(req));
     const token = req.cookies?.refresh_token;
     if (!token) return res.status(401).json({ code: 401, msg: 'Refresh がありません' });
+    let d;
     try {
-      const d = verifyRefresh(token);
+      d = verifyRefresh(token);
+    } catch {
+      return res.status(401).json({ code: 401, msg: 'Refresh が無効です' });
+    }
+    try {
       const db = getFirestore();
       const doc = await db.collection('users').doc(d.sub).get();
       if (!doc.exists) return res.status(401).json({ code: 401, msg: 'ユーザーが見つかりません' });
       const u = doc.data();
-      const payload = { sub: doc.id, role: u.role || 'viewer', orgId: u.orgId || orgId() };
-      res.json({ code: 200, accessToken: signAccess(payload) });
-    } catch {
-      return res.status(401).json({ code: 401, msg: 'Refresh が無効です' });
+      const { orgId: jwtOrgId } = syncPrimaryOrgWithList(
+        normalizeOrgIds(u),
+        String(u.orgId || '').trim() || undefined,
+      );
+      const payload = { sub: doc.id, role: u.role || 'viewer', orgId: jwtOrgId };
+      const accessToken = signAccess(payload);
+      const userJson = await buildAdminAuthUserResponse(db, doc.id, u);
+      res.json({ code: 200, accessToken, user: userJson });
+    } catch (e) {
+      if (isJwtConfigError(e)) {
+        console.warn('auth refresh: JWT secrets not configured');
+        return res.status(503).json({
+          code: 503,
+          msg:
+            '認証トークンの設定が不完全です。functions/.env に JWT_ACCESS_SECRET と JWT_REFRESH_SECRET（または JWT_SECRET）を設定してください。',
+        });
+      }
+      console.error('auth refresh', e);
+      return res.status(500).json({ code: 500, msg: 'トークンの再発行に失敗しました。' });
     }
   });
 
@@ -373,10 +457,66 @@ function createApiApp() {
     res.json({ code: 200, msg: 'ok' });
   });
 
+  /** admin / viewer / superadmin: 操作中の組織を切り替え、新しい accessToken を返す */
+  app.post('/api/auth/switch-org', requireAuth(['admin', 'viewer', 'superadmin']), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const targetOrgId = String(req.body?.orgId || '').trim();
+    if (!targetOrgId) {
+      return res.status(400).json({ code: 400, msg: 'orgId が必要です' });
+    }
+    try {
+      const db = getFirestore();
+      const ref = db.collection('users').doc(req.user.uid);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(401).json({ code: 401, msg: 'ユーザーが見つかりません' });
+      }
+      const u = snap.data();
+      const isSuper = u.role === 'superadmin';
+      if (isSuper) {
+        const os = await db.collection('orgs').doc(targetOrgId).get();
+        if (!os.exists) {
+          return res.status(403).json({ code: 403, msg: '組織にアクセスできません' });
+        }
+      } else if (!userMayAccessOrg(u, targetOrgId, { isSuperadmin: false })) {
+        return res.status(403).json({ code: 403, msg: '組織にアクセスできません' });
+      }
+      const normalized = normalizeOrgIds(u);
+      const newOrgIds = normalized.includes(targetOrgId)
+        ? [targetOrgId, ...normalized.filter((oid) => oid !== targetOrgId)]
+        : [targetOrgId, ...normalized];
+      await ref.update({
+        orgId: targetOrgId,
+        orgIds: newOrgIds,
+        updatedAt: Date.now(),
+      });
+      const fresh = await ref.get();
+      const u2 = fresh.data();
+      const { orgId: jwtOrgId } = syncPrimaryOrgWithList(
+        normalizeOrgIds(u2),
+        String(u2.orgId || '').trim() || undefined,
+      );
+      const payload = { sub: fresh.id, role: u2.role || 'viewer', orgId: jwtOrgId };
+      const accessToken = signAccess(payload);
+      const userJson = await buildAdminAuthUserResponse(db, fresh.id, u2);
+      res.json({ code: 200, accessToken, user: userJson });
+    } catch (e) {
+      if (isJwtConfigError(e)) {
+        console.warn('switch-org: JWT secrets not configured');
+        return res.status(503).json({
+          code: 503,
+          msg:
+            '認証トークンの設定が不完全です。functions/.env に JWT_ACCESS_SECRET と JWT_REFRESH_SECRET（または JWT_SECRET）を設定してください。',
+        });
+      }
+      console.error('switch-org', e);
+      return res.status(500).json({ code: 500, msg: '組織の切り替えに失敗しました。しばらくしてからお試しください。' });
+    }
+  });
+
   app.post('/api/auth/bootstrap', async (req, res) => {
     applyCors(res, corsHeaders(req));
-    const secret = req.get('X-Bootstrap-Secret');
-    if (!secret || secret !== process.env.AUTH_BOOTSTRAP_SECRET) {
+    if (!verifyBootstrapSecret(req)) {
       return res.status(403).json({ code: 403, msg: 'Forbidden' });
     }
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -391,14 +531,18 @@ function createApiApp() {
     }
     const passwordHash = await bcrypt.hash(password, 12);
     const ref = db.collection('users').doc();
+    const oidBootstrap = orgId();
     await ref.set({
       email,
       passwordHash,
-      role: 'admin',
-      orgId: orgId(),
+      /** 初回1人のみ: プラットフォーム兼用の superadmin（組織の admin は後からプラットフォーム画面で追加） */
+      role: 'superadmin',
+      orgId: oidBootstrap,
+      orgIds: [oidBootstrap],
       createdAt: Date.now(),
+      createdByBootstrap: true,
     });
-    res.json({ code: 200, userId: ref.id, email });
+    res.json({ code: 200, userId: ref.id, email, role: 'superadmin' });
   });
 
   /**
@@ -407,8 +551,7 @@ function createApiApp() {
    */
   app.post('/api/auth/bootstrap-superadmin', async (req, res) => {
     applyCors(res, corsHeaders(req));
-    const secret = req.get('X-Bootstrap-Secret');
-    if (!secret || secret !== process.env.AUTH_BOOTSTRAP_SECRET) {
+    if (!verifyBootstrapSecret(req)) {
       return res.status(403).json({ code: 403, msg: 'Forbidden' });
     }
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -436,11 +579,13 @@ function createApiApp() {
     }
     const passwordHash = await bcrypt.hash(password, 12);
     const ref = db.collection('users').doc();
+    const oidNew = orgId();
     await ref.set({
       email,
       passwordHash,
       role: 'superadmin',
-      orgId: orgId(),
+      orgId: oidNew,
+      orgIds: [oidNew],
       createdAt: Date.now(),
       createdByBootstrapSuperadmin: true,
     });
@@ -462,15 +607,46 @@ function createApiApp() {
     res.json({ code: 200, data: items });
   });
 
+  app.get('/api/admin/geocode', requireAuth('admin'), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const q = String(req.query.q || '').trim();
+    const result = await geocodeAddressWithGsi(q);
+    if (!result.ok) {
+      let status = 502;
+      if (result.msg.includes('文字以上') || result.msg.includes('文字以内')) status = 400;
+      else if (result.msg.includes('該当する位置が見つかりません')) status = 404;
+      return res.status(status).json({ code: status, msg: result.msg });
+    }
+    const body = { code: 200, lat: result.lat, lng: result.lng };
+    if (result.label) body.label = result.label;
+    res.json(body);
+  });
+
   app.post('/api/admin/facilities', requireAuth('admin'), async (req, res) => {
     applyCors(res, corsHeaders(req));
-    const { facilityId, name, sortOrder, address, lat, lng } = req.body || {};
-    const verr = validateFacilityPayload(facilityId, name, sortOrder, address, lat, lng);
+    const { facilityId, name, sortOrder, address, lat, lng, placementType, venueCategory } =
+      req.body || {};
+    const verr = validateFacilityPayload(
+      facilityId,
+      name,
+      sortOrder,
+      address,
+      lat,
+      lng,
+      placementType,
+      venueCategory,
+    );
     if (verr) return res.status(400).json({ code: 400, msg: verr });
     const db = getFirestore();
     const ref = db.collection('facilities').doc(String(facilityId));
     const cur = await ref.get();
-    if (cur.exists) return res.status(409).json({ code: 409, msg: 'facilityId が既に存在します' });
+    if (cur.exists) {
+      const prevOrg = cur.data()?.orgId;
+      return res.status(409).json({
+        code: 409,
+        msg: facilityCreateConflictMessage(prevOrg, req.user.orgId),
+      });
+    }
     await ref.set({
       orgId: req.user.orgId,
       name: String(name).trim(),
@@ -478,6 +654,8 @@ function createApiApp() {
       address: address != null ? String(address).slice(0, 500) : '',
       lat: lat != null && lat !== '' ? Number(lat) : null,
       lng: lng != null && lng !== '' ? Number(lng) : null,
+      placementType: toStoredFacilityPlacementType(placementType),
+      venueCategory: toStoredFacilityVenueCategory(venueCategory),
       disabled: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -508,9 +686,102 @@ function createApiApp() {
     if (req.body.lat !== undefined) patch.lat = req.body.lat === '' || req.body.lat == null ? null : Number(req.body.lat);
     if (req.body.lng !== undefined) patch.lng = req.body.lng === '' || req.body.lng == null ? null : Number(req.body.lng);
     if (req.body.disabled != null) patch.disabled = !!req.body.disabled;
+    if (req.body.placementType !== undefined) {
+      const pErr = validateFacilityPlacementTypeInput(req.body.placementType);
+      if (pErr) return res.status(400).json({ code: 400, msg: pErr });
+      patch.placementType = toStoredFacilityPlacementType(req.body.placementType);
+    }
+    if (req.body.venueCategory !== undefined) {
+      const cErr = validateFacilityVenueCategoryInput(req.body.venueCategory);
+      if (cErr) return res.status(400).json({ code: 400, msg: cErr });
+      patch.venueCategory = toStoredFacilityVenueCategory(req.body.venueCategory);
+    }
     patch.updatedAt = Date.now();
     await ref.update(patch);
     await appendDeviceAudit(req.user, 'facility.patch', { facilityId: fid, patch });
+    res.json({ code: 200 });
+  });
+
+  app.post(
+    '/api/admin/facilities/:facilityId/photo',
+    requireAuth('admin'),
+    facilityPhotoRawBody,
+    async (req, res) => {
+      applyCors(res, corsHeaders(req));
+      const fid = String(req.params.facilityId || '').trim();
+      try {
+        const buf = req.body;
+        if (!Buffer.isBuffer(buf) || buf.length === 0) {
+          return res.status(400).json({ code: 400, msg: '画像ファイルを送信してください' });
+        }
+        const ct = String(req.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+        const db = getFirestore();
+        const ref = db.collection('facilities').doc(fid);
+        const cur = await ref.get();
+        if (!cur.exists || cur.data().orgId !== req.user.orgId) {
+          return res.status(404).json({ code: 404, msg: '見つかりません' });
+        }
+        const prev =
+          cur.data().installationPhotoUrl != null ? String(cur.data().installationPhotoUrl).trim() : '';
+        const { installationPhotoUrl } = await uploadFacilityInstallationPhotoBuffer(
+          req.user.orgId,
+          fid,
+          buf,
+          ct,
+        );
+        await ref.update({ installationPhotoUrl, updatedAt: Date.now() });
+        if (prev && prev !== installationPhotoUrl) {
+          await deleteManagedFacilityInstallationPhoto(req.user.orgId, fid, prev);
+        }
+        await appendDeviceAudit(req.user, 'facility.photo.upload', { facilityId: fid });
+        res.json({ code: 200, data: { installationPhotoUrl } });
+      } catch (e) {
+        console.error('facility photo upload', e && e.message, e && e.code, e);
+        if (e.code === 'PHOTO_TOO_LARGE') {
+          return res.status(400).json({ code: 400, msg: '画像は 5MB 以下にしてください' });
+        }
+        if (e.code === 'PHOTO_TYPE' || e.code === 'PHOTO_EMPTY') {
+          return res.status(400).json({ code: 400, msg: 'PNG / JPEG / WebP の画像を指定してください' });
+        }
+        if (e.code === 'ADMIN_INIT') {
+          return res.status(503).json({
+            code: 503,
+            msg: 'サーバー初期化エラーです。しばらくしてから再度お試しください。',
+          });
+        }
+        const msg = e && e.message ? String(e.message) : '';
+        if (
+          e.code === 404 ||
+          /bucket not found|Not Found|does not exist|Default Firebase app|storage\/object-not-found/i.test(msg)
+        ) {
+          return res.status(503).json({
+            code: 503,
+            msg:
+              'Firebase Storage を利用できません。Firebase コンソールで Storage を有効化するか、ローカルなら Storage エミュレータ（firebase emulators:start に storage を含める）を起動してください。',
+          });
+        }
+        res.status(500).json({
+          code: 500,
+          msg: '設置写真のアップロードに失敗しました。ネットワークと Storage の設定を確認してください。',
+        });
+      }
+    },
+  );
+
+  app.delete('/api/admin/facilities/:facilityId/photo', requireAuth('admin'), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const fid = String(req.params.facilityId || '').trim();
+    const db = getFirestore();
+    const ref = db.collection('facilities').doc(fid);
+    const cur = await ref.get();
+    if (!cur.exists || cur.data().orgId !== req.user.orgId) {
+      return res.status(404).json({ code: 404, msg: '見つかりません' });
+    }
+    const prev =
+      cur.data().installationPhotoUrl != null ? String(cur.data().installationPhotoUrl).trim() : '';
+    await ref.update({ installationPhotoUrl: FieldValue.delete(), updatedAt: Date.now() });
+    if (prev) await deleteManagedFacilityInstallationPhoto(req.user.orgId, fid, prev);
+    await appendDeviceAudit(req.user, 'facility.photo.delete', { facilityId: fid });
     res.json({ code: 200 });
   });
 
@@ -680,18 +951,94 @@ function createApiApp() {
     res.json({ code: 200, data });
   });
 
+  app.post('/api/admin/org-logo', requireAuth('admin'), orgLogoRawBody, async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      const buf = req.body;
+      if (!Buffer.isBuffer(buf) || buf.length === 0) {
+        return res.status(400).json({ code: 400, msg: '画像ファイルを送信してください' });
+      }
+      const ct = String(req.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+      const db = getFirestore();
+      const orgRef = db.collection('orgs').doc(req.user.orgId);
+      const prevSnap = await orgRef.get();
+      const prevLogo =
+        prevSnap.exists && prevSnap.data().logoUrl != null
+          ? String(prevSnap.data().logoUrl).trim()
+          : '';
+      const { logoUrl } = await uploadOrgLogoBuffer(req.user.orgId, buf, ct);
+      await orgRef.set({ logoUrl, updatedAt: Date.now() }, { merge: true });
+      if (prevLogo && prevLogo !== logoUrl) {
+        await deleteManagedOrgLogoObject(req.user.orgId, prevLogo);
+      }
+      await appendDeviceAudit(req.user, 'org.logo.upload', {});
+      res.json({ code: 200, data: { logoUrl } });
+    } catch (e) {
+      console.error('org logo upload', e && e.message, e && e.code, e);
+      if (e.code === 'LOGO_TOO_LARGE') {
+        return res.status(400).json({ code: 400, msg: '画像は 2MB 以下にしてください' });
+      }
+      if (e.code === 'LOGO_TYPE' || e.code === 'LOGO_EMPTY') {
+        return res.status(400).json({ code: 400, msg: 'PNG / JPEG / WebP / SVG の画像を指定してください' });
+      }
+      if (e.code === 'ADMIN_INIT') {
+        return res.status(503).json({
+          code: 503,
+          msg: 'サーバー初期化エラーです。しばらくしてから再度お試しください。',
+        });
+      }
+      if (e.code === 'LOGO_PUBLIC') {
+        return res.status(503).json({
+          code: 503,
+          msg: 'ストレージの公開設定で失敗しました。Firebase Storage のバケット権限を確認してください。',
+        });
+      }
+      const msg = e && e.message ? String(e.message) : '';
+      if (
+        e.code === 404 ||
+        /bucket not found|Not Found|does not exist|Default Firebase app|storage\/object-not-found/i.test(msg)
+      ) {
+        return res.status(503).json({
+          code: 503,
+          msg:
+            'Firebase Storage を利用できません。Firebase コンソールで Storage を有効化するか、ローカルなら Storage エミュレータ（firebase emulators:start --only functions,firestore,storage）を起動してください。',
+        });
+      }
+      res.status(500).json({
+        code: 500,
+        msg: 'ロゴのアップロードに失敗しました。ネットワークと Storage の設定を確認してください。',
+      });
+    }
+  });
+
   app.patch('/api/admin/org-settings', requireAuth('admin'), async (req, res) => {
     applyCors(res, corsHeaders(req));
     const body = req.body || {};
+    const db = getFirestore();
+    const orgRef = db.collection('orgs').doc(req.user.orgId);
+
+    /** @type {string | null} */
+    let previousLogoUrl = null;
+    if (Object.prototype.hasOwnProperty.call(body, 'logoUrl')) {
+      const ps = await orgRef.get();
+      previousLogoUrl =
+        ps.exists && ps.data().logoUrl != null ? String(ps.data().logoUrl).trim() : '';
+    }
+
     const dashboardFields = ['dashboardTitle', 'dashboardSubtitle', 'themePrimary', 'logoUrl'];
     const patch = {};
     let changed = false;
+    /** @type {string | null | undefined} */
+    let newLogoValidated = undefined;
 
     for (const f of dashboardFields) {
       if (!Object.prototype.hasOwnProperty.call(body, f)) continue;
       const r = validateDashboardPatchField(f, body[f]);
       if (!r.ok) return res.status(400).json({ code: 400, msg: r.msg });
       changed = true;
+      if (f === 'logoUrl') {
+        newLogoValidated = r.value === '' ? null : r.value;
+      }
       if (r.value === '') {
         patch[f] = FieldValue.delete();
       } else {
@@ -716,8 +1063,15 @@ function createApiApp() {
     }
 
     patch.updatedAt = Date.now();
-    const db = getFirestore();
-    await db.collection('orgs').doc(req.user.orgId).set(patch, { merge: true });
+    await orgRef.set(patch, { merge: true });
+
+    if (
+      Object.prototype.hasOwnProperty.call(body, 'logoUrl') &&
+      previousLogoUrl &&
+      (newLogoValidated === null || newLogoValidated !== previousLogoUrl)
+    ) {
+      await deleteManagedOrgLogoObject(req.user.orgId, previousLogoUrl);
+    }
 
     const auditKeys = Object.keys(patch).filter((k) => k !== 'updatedAt');
     await appendDeviceAudit(req.user, 'org.settings.patch', {
@@ -765,7 +1119,9 @@ function createApiApp() {
     applyCors(res, corsHeaders(req));
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
-    const targetOrgId = String(req.body?.orgId || '').trim();
+    const targetOrgId = String(req.body?.orgId || '')
+      .trim()
+      .toLowerCase();
     const role = String(req.body?.role || 'admin');
     if (!email || !password || password.length < 8) {
       return res.status(400).json({ code: 400, msg: 'email と password（8文字以上）が必要です' });
@@ -792,6 +1148,7 @@ function createApiApp() {
       passwordHash,
       role,
       orgId: targetOrgId,
+      orgIds: [targetOrgId],
       createdAt: Date.now(),
       createdByPlatformAdmin: req.user.uid,
     });
@@ -802,6 +1159,201 @@ function createApiApp() {
       role,
     });
     res.json({ code: 200, userId: ref.id });
+  });
+
+  app.get('/api/admin/platform/users', requireAuth(['superadmin']), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const db = getFirestore();
+    const snap = await db.collection('users').get();
+    const items = [];
+    snap.forEach((doc) => {
+      items.push(stripUserForPlatformList(doc.id, doc.data()));
+    });
+    items.sort((a, b) => {
+      const byOrg = String(a.orgId).localeCompare(String(b.orgId));
+      if (byOrg !== 0) return byOrg;
+      return String(a.email).localeCompare(String(b.email));
+    });
+    res.json({ code: 200, data: items });
+  });
+
+  app.patch('/api/admin/platform/users/:userId', requireAuth(['superadmin']), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const userId = String(req.params.userId || '').trim();
+    if (!userId) {
+      return res.status(400).json({ code: 400, msg: 'ユーザー ID が不正です' });
+    }
+    const body = req.body || {};
+    const db = getFirestore();
+    const ref = db.collection('users').doc(userId);
+    const cur = await ref.get();
+    if (!cur.exists) {
+      return res.status(404).json({ code: 404, msg: 'ユーザーが見つかりません' });
+    }
+    const curData = cur.data() || {};
+    const isSuper = curData.role === 'superadmin';
+    /** @type {Record<string, unknown>} */
+    const updates = { updatedAt: Date.now() };
+    let changed = false;
+
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (Object.prototype.hasOwnProperty.call(body, 'email')) {
+      const email = String(body.email || '').trim().toLowerCase();
+      if (!email || !emailRe.test(email)) {
+        return res.status(400).json({ code: 400, msg: 'メールアドレスが不正です' });
+      }
+      const dup = await db.collection('users').where('email', '==', email).limit(1).get();
+      if (!dup.empty && dup.docs[0].id !== userId) {
+        return res.status(409).json({ code: 409, msg: 'このメールは既に登録されています' });
+      }
+      updates.email = email;
+      changed = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'password') && String(body.password || '').length > 0) {
+      const password = String(body.password);
+      if (password.length < 8) {
+        return res.status(400).json({ code: 400, msg: 'パスワードは8文字以上にしてください' });
+      }
+      updates.passwordHash = await bcrypt.hash(password, 12);
+      changed = true;
+    }
+
+    if (!isSuper) {
+      if (Object.prototype.hasOwnProperty.call(body, 'role')) {
+        const role = String(body.role || '').trim();
+        if (role !== 'admin' && role !== 'viewer') {
+          return res.status(400).json({ code: 400, msg: 'role は admin または viewer です' });
+        }
+        updates.role = role;
+        changed = true;
+      }
+
+      const hasOrgIds = Object.prototype.hasOwnProperty.call(body, 'orgIds');
+      const hasOrgId = Object.prototype.hasOwnProperty.call(body, 'orgId');
+
+      if (hasOrgIds || hasOrgId) {
+        /** @type {string[] | null} */
+        let nextOrgIdsExplicit = null;
+        /** @type {string | null} */
+        let nextOrgIdExplicit = null;
+
+        if (hasOrgId) {
+          const targetOrgId = String(body.orgId || '')
+            .trim()
+            .toLowerCase();
+          if (!isValidOrgIdForDoc(targetOrgId)) {
+            return res.status(400).json({ code: 400, msg: '組織 ID が不正です' });
+          }
+          const orgSnapSingle = await db.collection('orgs').doc(targetOrgId).get();
+          if (!orgSnapSingle.exists) {
+            return res.status(400).json({ code: 400, msg: '組織が存在しません' });
+          }
+          nextOrgIdExplicit = targetOrgId;
+        }
+
+        if (hasOrgIds) {
+          const raw = body.orgIds;
+          if (!Array.isArray(raw) || raw.length === 0) {
+            return res.status(400).json({ code: 400, msg: 'orgIds は非空の配列が必要です' });
+          }
+          const uniq = [
+            ...new Set(raw.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)),
+          ];
+          if (!uniq.length) {
+            return res.status(400).json({ code: 400, msg: 'orgIds が不正です' });
+          }
+          try {
+            await assertOrgIdsValid(db, uniq);
+          } catch (e) {
+            if (e.httpStatus === 400) {
+              return res.status(400).json({
+                code: 400,
+                msg: String(e.message || '').startsWith('unknown org')
+                  ? `組織が存在しません: ${String(e.message).replace(/^unknown org:\s*/i, '')}`
+                  : '組織が存在しません',
+              });
+            }
+            throw e;
+          }
+          nextOrgIdsExplicit = uniq;
+        }
+
+        if (nextOrgIdExplicit != null && nextOrgIdsExplicit != null && !nextOrgIdsExplicit.includes(nextOrgIdExplicit)) {
+          return res.status(400).json({ code: 400, msg: 'orgId は orgIds に含まれる必要があります' });
+        }
+
+        const baseIds =
+          nextOrgIdsExplicit != null
+            ? [...nextOrgIdsExplicit]
+            : normalizeOrgIds({ ...curData, orgId: nextOrgIdExplicit ?? curData.orgId });
+
+        let primary =
+          nextOrgIdExplicit != null ? nextOrgIdExplicit : '';
+        if (!primary) {
+          const cp = String(curData.orgId || '').trim();
+          primary = baseIds.includes(cp) ? cp : baseIds[0];
+        }
+        if (!primary || !baseIds.includes(primary)) {
+          primary = baseIds[0];
+        }
+
+        updates.orgId = primary;
+        updates.orgIds = syncPrimaryOrgWithList(baseIds, primary).orgIds;
+        changed = true;
+      }
+    } else {
+      if (
+        Object.prototype.hasOwnProperty.call(body, 'role') ||
+        Object.prototype.hasOwnProperty.call(body, 'orgId') ||
+        Object.prototype.hasOwnProperty.call(body, 'orgIds')
+      ) {
+        return res.status(400).json({
+          code: 400,
+          msg: 'superadmin の所属組織・組織一覧・ロールはこの画面から変更できません',
+        });
+      }
+    }
+
+    if (!changed) {
+      return res.json({ code: 200, msg: '変更なし' });
+    }
+
+    await ref.update(updates);
+    await appendDeviceAudit(req.user, 'platform.user.patch', {
+      userId,
+      keys: Object.keys(updates).filter((k) => k !== 'passwordHash' && k !== 'updatedAt'),
+      passwordUpdated: Object.prototype.hasOwnProperty.call(updates, 'passwordHash'),
+    });
+    res.json({ code: 200 });
+  });
+
+  app.delete('/api/admin/platform/users/:userId', requireAuth(['superadmin']), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const userId = String(req.params.userId || '').trim();
+    if (!userId) {
+      return res.status(400).json({ code: 400, msg: 'ユーザー ID が不正です' });
+    }
+    if (userId === req.user.uid) {
+      return res.status(400).json({ code: 400, msg: '自分自身は削除できません' });
+    }
+    const db = getFirestore();
+    const ref = db.collection('users').doc(userId);
+    const cur = await ref.get();
+    if (!cur.exists) {
+      return res.status(404).json({ code: 404, msg: 'ユーザーが見つかりません' });
+    }
+    const curData = cur.data() || {};
+    if (curData.role === 'superadmin') {
+      const n = await countSuperadmins(db);
+      if (n <= 1) {
+        return res.status(400).json({ code: 400, msg: '最後の superadmin は削除できません' });
+      }
+    }
+    await ref.delete();
+    await appendDeviceAudit(req.user, 'platform.user.delete', { userId });
+    res.json({ code: 200 });
   });
 
   app.post('/api/buildics', async (req, res) => {

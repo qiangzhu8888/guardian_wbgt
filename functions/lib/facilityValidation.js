@@ -2,11 +2,13 @@
 
 const MAX_NAME = 200;
 const MAX_ADDRESS = 500;
+const { validateFacilityPlacementTypeInput } = require('./facilityPlacementType');
+const { validateFacilityVenueCategoryInput } = require('./facilityVenueCategory');
 
 /**
  * @returns {string|null} エラーメッセージ or null
  */
-function validateFacilityPayload(facilityId, name, sortOrder, address, lat, lng) {
+function validateFacilityPayload(facilityId, name, sortOrder, address, lat, lng, placementType, venueCategory) {
   const fid = Number(facilityId);
   if (!Number.isFinite(fid) || fid <= 0 || fid > 1e9) {
     return 'facilityId は 1 〜 10億未満の整数である必要があります';
@@ -29,6 +31,10 @@ function validateFacilityPayload(facilityId, name, sortOrder, address, lat, lng)
   if (lng != null && lng !== '' && !Number.isFinite(Number(lng))) {
     return '経度 lng が不正です';
   }
+  const pErr = validateFacilityPlacementTypeInput(placementType);
+  if (pErr) return pErr;
+  const vErr = validateFacilityVenueCategoryInput(venueCategory);
+  if (vErr) return vErr;
   return null;
 }
 

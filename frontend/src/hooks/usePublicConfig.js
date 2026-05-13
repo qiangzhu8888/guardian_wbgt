@@ -22,7 +22,7 @@ async function fetchConfig(orgSlug) {
 }
 
 /**
- * @param {string | undefined} orgSlug `/o/:orgSlug` の値
+ * @param {string | undefined} orgSlug `/tenant/:orgSlug` の値
  * @returns {{ config: object | null, loading: boolean, error: string | null, reload: () => Promise<void> }}
  */
 export function usePublicConfig(orgSlug) {

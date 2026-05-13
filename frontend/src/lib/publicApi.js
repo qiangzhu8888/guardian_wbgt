@@ -37,6 +37,24 @@ export function adminApiUrl(path) {
 }
 
 /**
+ * 操作中の組織を切り替える（Firestore の users の orgId も同期）
+ * @param {string} accessToken
+ * @param {string} orgId 切り替え先の org ID
+ */
+export async function switchAdminOrg(accessToken, orgId) {
+  const res = await fetch(adminApiUrl('/api/auth/switch-org'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ orgId }),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
  * @param {string} accessToken
  * @returns {Promise<{ code: number, data?: object, msg?: string }>}
  */
@@ -60,6 +78,24 @@ export async function patchAdminOrgSettings(accessToken, body) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * ロゴ画像を Firebase Storage に保存し、orgs.logoUrl を更新する。
+ * @param {string} accessToken
+ * @param {File} file PNG / JPEG / WebP / SVG
+ */
+export async function uploadAdminOrgLogo(accessToken, file) {
+  const res = await fetch(adminApiUrl('/api/admin/org-logo'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
   });
   const j = await res.json().catch(() => ({}));
   return { ...j, _ok: res.ok, _status: res.status };
@@ -105,6 +141,48 @@ export async function createPlatformUser(accessToken, body) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ */
+export async function fetchPlatformUsers(accessToken) {
+  const res = await fetch(adminApiUrl('/api/admin/platform/users'), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ * @param {string} userId
+ * @param {{ email?: string, password?: string, orgId?: string, orgIds?: string[], role?: string }} body
+ */
+export async function patchPlatformUser(accessToken, userId, body) {
+  const res = await fetch(adminApiUrl(`/api/admin/platform/users/${encodeURIComponent(userId)}`), {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
+ * @param {string} accessToken
+ * @param {string} userId
+ */
+export async function deletePlatformUser(accessToken, userId) {
+  const res = await fetch(adminApiUrl(`/api/admin/platform/users/${encodeURIComponent(userId)}`), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   const j = await res.json().catch(() => ({}));
   return { ...j, _ok: res.ok, _status: res.status };

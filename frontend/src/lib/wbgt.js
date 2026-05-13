@@ -54,6 +54,17 @@ export function getWBGTLevel(wbgt) {
 }
 
 /**
+ * ダッシュボード／詳細の「WBGT 指針」表用。* {@link getWBGTLevel} の境界と一致する文言。
+ */
+export const WBGT_ENV_GUIDELINES = Object.freeze([
+  { badge: '危険', label: '危険 31℃以上' },
+  { badge: '厳重警戒', label: '厳重警戒 28〜31℃' },
+  { badge: '警戒', label: '警戒 25〜28℃' },
+  { badge: '注意', label: '注意 21〜25℃' },
+  { badge: 'ほぼ安全', label: 'ほぼ安全 21℃未満' },
+]);
+
+/**
  * BUILDICSの dataValue 文字列から温度・湿度を取得
  * dataValue 形式: "温度,湿度"（例: "25.5,60.2"）
  * @param {string} dataValue

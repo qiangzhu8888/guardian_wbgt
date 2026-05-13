@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#0f172a"/>
+  <rect x="216" y="96" width="80" height="220" rx="24" fill="#38bdf8"/>
+  <line x1="256" y1="120" x2="256" y2="280" stroke="#e0f2fe" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="256" cy="352" r="36" fill="#f97316"/>
+  <text
+    x="256"
+    y="402"
+    text-anchor="middle"
+    fill="#94a3b8"
+    font-family="system-ui,sans-serif"
+    font-size="26"
+    font-weight="700"
+  >
+    <tspan x="256" dy="0">熱中症監視システム</tspan>
+    <tspan x="256" dy="34">BUILDICS-GUARDIAN</tspan>
+  </text>
+</svg>

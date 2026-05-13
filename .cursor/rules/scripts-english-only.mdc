@@ -1,0 +1,23 @@
+---
+description: Operational scripts must be English-only (no Japanese in script source).
+globs: scripts/**/*
+alwaysApply: false
+---
+
+# Scripts language (repository rule)
+
+When creating or editing files under **`scripts/`** (PowerShell `.ps1`, future shell wrappers, helper scripts shipped with deployments):
+
+## Required
+
+- **Use English only**: comments, `#Requires`/comment-based help (`.SYNOPSIS`, `.DESCRIPTION`, `.NOTES`, etc.), **`throw`** messages, **`Write-Host`/console output**, and inline remarks.
+- Prefer **ASCII** in user-visible strings where practical to avoid Windows PowerShell 5.1 encoding and lexer edge cases.
+
+## Forbidden
+
+- **No Japanese** (and generally no mixed-language strings) anywhere in script source intended for CI or ops.
+
+## Exceptions
+
+- **Documentation** (`README.md`, `DEPLOY.md`, etc.) may remain in Japanese or bilingual; this rule applies to **`scripts/**`** only.
+- Repo **application code** (e.g. `frontend/` user-facing Japanese UI) is unaffected unless it lives under **`scripts/`**.
