@@ -1119,7 +1119,9 @@ function createApiApp() {
     applyCors(res, corsHeaders(req));
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
-    const targetOrgId = String(req.body?.orgId || '').trim();
+    const targetOrgId = String(req.body?.orgId || '')
+      .trim()
+      .toLowerCase();
     const role = String(req.body?.role || 'admin');
     if (!email || !password || password.length < 8) {
       return res.status(400).json({ code: 400, msg: 'email と password（8文字以上）が必要です' });
@@ -1238,7 +1240,9 @@ function createApiApp() {
         let nextOrgIdExplicit = null;
 
         if (hasOrgId) {
-          const targetOrgId = String(body.orgId || '').trim();
+          const targetOrgId = String(body.orgId || '')
+            .trim()
+            .toLowerCase();
           if (!isValidOrgIdForDoc(targetOrgId)) {
             return res.status(400).json({ code: 400, msg: '組織 ID が不正です' });
           }
@@ -1254,7 +1258,9 @@ function createApiApp() {
           if (!Array.isArray(raw) || raw.length === 0) {
             return res.status(400).json({ code: 400, msg: 'orgIds は非空の配列が必要です' });
           }
-          const uniq = [...new Set(raw.map((x) => String(x || '').trim()).filter(Boolean))];
+          const uniq = [
+            ...new Set(raw.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)),
+          ];
           if (!uniq.length) {
             return res.status(400).json({ code: 400, msg: 'orgIds が不正です' });
           }

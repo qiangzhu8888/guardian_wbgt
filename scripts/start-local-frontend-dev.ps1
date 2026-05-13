@@ -7,12 +7,16 @@
   /api requests are forwarded by vite.config.js to the Firebase Functions emulator.
   Use -LaunchEmulators to spawn a second terminal that runs start-firebase-emulators.ps1.
   Emulator-side env comes from functions/.env when loaded by that process.
+  If node_modules is missing or vite is not installed, npm install is run automatically unless you use -SkipDepsCheck.
 
 .PARAMETER LaunchEmulators
   Start scripts/start-firebase-emulators.ps1 in a new powershell.exe window (ApiOnly mode).
 
 .PARAMETER InstallDeps
-  Run npm install inside frontend before npm run dev.
+  Always run npm install inside frontend before npm run dev.
+
+.PARAMETER SkipDepsCheck
+  Do not auto-run npm install when vite is missing.
 
 .NOTES
   Keep .firebaserc default project ID aligned with frontend/vite.config.js rewrite for /api.
@@ -25,7 +29,8 @@
 #>
 param(
   [switch] $LaunchEmulators,
-  [switch] $InstallDeps
+  [switch] $InstallDeps,
+  [switch] $SkipDepsCheck
 )
 
 Set-StrictMode -Version Latest
@@ -55,8 +60,28 @@ if (-not (Test-Path (Join-Path $frontend 'package.json'))) {
 }
 
 Set-Location $frontend
-if ($InstallDeps) {
+
+function Test-FrontendVitePresent {
+  $binViteCmd = Join-Path $frontend 'node_modules\.bin\vite.cmd'
+  $binVite = Join-Path $frontend 'node_modules\.bin\vite'
+  $pkgVite = Join-Path $frontend 'node_modules\vite\package.json'
+  return (
+    (Test-Path -LiteralPath $binViteCmd) -or
+    (Test-Path -LiteralPath $binVite) -or
+    (Test-Path -LiteralPath $pkgVite)
+  )
+}
+
+if ($InstallDeps -or ((-not $SkipDepsCheck) -and -not (Test-FrontendVitePresent))) {
+  if ($InstallDeps) {
+    Write-Host '[start-local-frontend-dev] InstallDeps: npm install' -ForegroundColor Cyan
+  } else {
+    Write-Host '[start-local-frontend-dev] vite missing; running npm install' -ForegroundColor Yellow
+  }
   npm install
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm install failed (exit $LASTEXITCODE)"
+  }
 }
 
 Write-Host '[start-local-frontend-dev] npm run dev (Ctrl+C to stop)' -ForegroundColor Green

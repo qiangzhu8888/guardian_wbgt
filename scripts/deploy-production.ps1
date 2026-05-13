@@ -25,6 +25,18 @@
 .PARAMETER UseInstall
   Use npm install instead of npm ci (local convenience).
 
+.PARAMETER FreshFrontend
+  Delete frontend/node_modules before npm ci/install (helps Windows EPERM on native addons).
+
+.PARAMETER NoFrontendEpermRecover
+  Windows only: by default frontend npm deletes node_modules once on EPERM and retries. Omit that with this switch.
+
+.PARAMETER FreshFunctions
+  Delete functions/node_modules before npm ci/install when deploying functions.
+
+.PARAMETER NoFunctionsEpermRecover
+  Windows only: by default functions npm deletes node_modules once on EPERM and retries. Omit that with this switch.
+
 .NOTES
   Not Hosting emulator workflow. firebase login required.
   Comma in --only is passed verbatim from this script.
@@ -45,11 +57,17 @@ param(
   [switch] $NonInteractive,
   [switch] $SkipFrontendBuild,
   [switch] $SkipFunctionsInstall,
-  [switch] $UseInstall
+  [switch] $UseInstall,
+  [switch] $FreshFrontend,
+  [switch] $NoFrontendEpermRecover,
+  [switch] $FreshFunctions,
+  [switch] $NoFunctionsEpermRecover
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'npm-win-hardening.ps1')
 
 function Read-FirebaseDefaultProjectId {
   param([string] $RepoRoot)
@@ -86,17 +104,21 @@ $needsFunctions = $targets -contains 'functions'
 if ($needsHosting -and -not $SkipFrontendBuild) {
   Write-Host '[deploy-production] frontend: npm ci/install then build' -ForegroundColor Cyan
   $frontend = Join-Path $repoRoot 'frontend'
-  Push-Location $frontend
-  try {
-    if ($UseInstall) {
-      npm install
-    } else {
-      npm ci
-    }
-    npm run build
-  } finally {
-    Pop-Location
+  if (-not (Test-Path (Join-Path $frontend 'package.json'))) {
+    throw "Missing frontend/package.json: $frontend"
   }
+
+  if ($FreshFrontend) {
+    Remove-TreeIfPresent '[deploy-production]' (Join-Path $frontend 'node_modules') 'fresh frontend: frontend/node_modules'
+  }
+
+  $npmDepsArgs = if ($UseInstall) { @('install') } else { @('ci') }
+  Invoke-RobustNpm -LogPrefix '[deploy-production]' -Label 'frontend: npm ci or install' `
+    -WorkingDirectory $frontend -NpmArguments $npmDepsArgs `
+    -RecoverOnceIfEperm:$(-not $NoFrontendEpermRecover)
+
+  Invoke-RobustNpm -LogPrefix '[deploy-production]' -Label 'frontend: npm run build' `
+    -WorkingDirectory $frontend -NpmArguments @('run', 'build')
 } elseif ($needsHosting -and $SkipFrontendBuild) {
   $distIndex = Join-Path $repoRoot 'frontend\dist\index.html'
   if (-not (Test-Path $distIndex)) {
@@ -108,16 +130,16 @@ if ($needsHosting -and -not $SkipFrontendBuild) {
 if ($needsFunctions -and -not $SkipFunctionsInstall) {
   Write-Host '[deploy-production] functions: npm ci/install' -ForegroundColor Cyan
   $functionsDir = Join-Path $repoRoot 'functions'
-  Push-Location $functionsDir
-  try {
-    if ($UseInstall) {
-      npm install
-    } else {
-      npm ci
-    }
-  } finally {
-    Pop-Location
+  if (-not (Test-Path (Join-Path $functionsDir 'package.json'))) {
+    throw "Missing functions/package.json: $functionsDir"
   }
+  if ($FreshFunctions) {
+    Remove-TreeIfPresent '[deploy-production]' (Join-Path $functionsDir 'node_modules') 'fresh functions: functions/node_modules'
+  }
+  $npmDepsArgsFn = if ($UseInstall) { @('install') } else { @('ci') }
+  Invoke-RobustNpm -LogPrefix '[deploy-production]' -Label 'functions: npm ci or install' `
+    -WorkingDirectory $functionsDir -NpmArguments $npmDepsArgsFn `
+    -RecoverOnceIfEperm:$(-not $NoFunctionsEpermRecover)
 }
 
 Set-Location $repoRoot
@@ -148,3 +170,6 @@ if ($NonInteractive) {
 
 Write-Host "[deploy-production] firebase $($fbArgs -join ' ')" -ForegroundColor Green
 & firebase @fbArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "firebase deploy failed (exit $($LASTEXITCODE))"
+}

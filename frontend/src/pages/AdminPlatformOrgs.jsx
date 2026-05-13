@@ -44,6 +44,26 @@ export function normalizeUserOrgIds(row) {
   return out;
 }
 
+/**
+ * Firestore org doc ids are case-sensitive. User docs may contain legacy casing mismatches vs orgs/.
+ * Align members to catalog keys so checkbox state and PATCH body match list rows.
+ *
+ * @param {string[]} ids
+ * @param {Array<{ orgId?: string }>} catalogItems fetchPlatformOrgs data
+ */
+export function reconcileMembershipIdsWithCatalog(ids, catalogItems) {
+  const list = Array.isArray(ids) ? ids : [];
+  const cat = Array.isArray(catalogItems) ? catalogItems : [];
+  const cleaned = [...new Set(list.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  /** @type {string[]} */
+  const out = [];
+  for (const id of cleaned) {
+    const hit = cat.find((o) => String(o.orgId ?? '').toLowerCase() === id.toLowerCase());
+    out.push(hit ? String(hit.orgId) : id);
+  }
+  return [...new Set(out)];
+}
+
 /** @param {Record<string, unknown>} row */
 function formatUserOrgScopeCell(row) {
   const ids = normalizeUserOrgIds(row);
@@ -133,7 +153,11 @@ export default function AdminPlatformOrgs() {
     if (!editOpenId) return;
     setEditOrgId((cur) => {
       const c = String(cur || '').trim();
-      if (editMembershipIds.includes(c)) return c;
+      const hit =
+        editMembershipIds.find((m) => m === c) ??
+        editMembershipIds.find((m) => m.toLowerCase() === c.toLowerCase()) ??
+        null;
+      if (hit != null) return hit;
       return editMembershipIds[0] || '';
     });
   }, [editMembershipIds, editOpenId]);
@@ -152,9 +176,13 @@ export default function AdminPlatformOrgs() {
     setOkMsg('');
     setEditOpenId(String(row.userId));
     setEditEmail(String(row.email || ''));
-    const ids = normalizeUserOrgIds(row);
-    setEditMembershipIds(ids.length ? ids : [String(row.orgId || '')].filter(Boolean));
-    setEditOrgId(String(row.orgId || ids[0] || ''));
+    const idsRaw = normalizeUserOrgIds(row);
+    const fallback = idsRaw.length ? idsRaw : [String(row.orgId || '')].filter(Boolean);
+    const reconciled = reconcileMembershipIdsWithCatalog(fallback, items);
+    setEditMembershipIds(reconciled);
+    const primRaw = String(row.orgId || reconciled[0] || '').trim();
+    const primaryHit = items.find((o) => String(o.orgId ?? '').toLowerCase() === primRaw.toLowerCase());
+    setEditOrgId(primaryHit ? String(primaryHit.orgId) : (reconciled[0] || primRaw || ''));
     setEditRole(String(row.role || 'viewer'));
     setEditPassword('');
   }
@@ -168,7 +196,8 @@ export default function AdminPlatformOrgs() {
     if (!id) return;
     setEditMembershipIds((prev) => {
       const base = prev.map(String).filter(Boolean);
-      let next = checked ? [...base, id] : base.filter((x) => x !== id);
+      const withoutId = base.filter((x) => String(x).toLowerCase() !== id.toLowerCase());
+      let next = checked ? [...withoutId, id] : withoutId;
       next = [...new Set(next)];
       if (!checked && next.length === 0) return base;
       return next;
@@ -193,14 +222,21 @@ export default function AdminPlatformOrgs() {
       if (editPassword.trim()) body.password = editPassword;
     } else {
       body.email = editEmail.trim().toLowerCase();
-      const membership = [...new Set(editMembershipIds.map((x) => String(x || '').trim()).filter(Boolean))];
+      const membership = reconcileMembershipIdsWithCatalog(
+        [...new Set(editMembershipIds.map((x) => String(x || '').trim()).filter(Boolean))],
+        items,
+      );
       if (membership.length === 0) {
         setEditSaving(false);
         setErr('アクセス可能な組織を1つ以上選んでください');
         return;
       }
-      const primary = editOrgId.trim();
-      if (!membership.includes(primary)) {
+      const primaryTrim = editOrgId.trim();
+      const primary =
+        membership.find((m) => m === primaryTrim) ??
+        membership.find((m) => m.toLowerCase() === primaryTrim.toLowerCase()) ??
+        '';
+      if (!primary) {
         setEditSaving(false);
         setErr('「既定の組織」は、チェックした組織のいずれかを選んでください');
         return;
@@ -541,6 +577,9 @@ export default function AdminPlatformOrgs() {
                       <legend className="text-xs font-semibold text-slate-600 px-1">アクセス可能な組織</legend>
                       <p className="text-[11px] text-slate-500 leading-relaxed">
                         チェックした組織にログイン後、ヘッダーから切り替え可能です。最後の1つは外せません。
+                        <span className="block mt-1">
+                          保存済みの組織 ID と一覧の表記（大文字／小文字）が違う場合は、自動で一覧の ID に揃えます。
+                        </span>
                       </p>
                       <ul className="space-y-2 max-h-48 overflow-y-auto">
                         {items.map((o) => {
