@@ -20,11 +20,18 @@
 .PARAMETER SkipOptionalTestsDir
   Skip tests/ entirely even if package.json exists.
 
+.PARAMETER FreshFrontend
+  Delete frontend/node_modules before npm ci/install (helps when npm fails with EPERM unlink on Windows).
+
 .EXAMPLE
   .\scripts\run-acceptance-tests.ps1
+
+.EXAMPLE
+  .\scripts\run-acceptance-tests.ps1 -FreshFrontend -UseInstall
 #>
 param(
   [switch] $UseInstall,
+  [switch] $FreshFrontend,
   [switch] $SkipFrontendBuild,
   [switch] $SkipSeedDryRun,
   [switch] $SkipOptionalTestsDir
@@ -32,6 +39,32 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+function Test-LikelyNpmEpremFileLock {
+  param([long] $ExitCode)
+  # Windows: EPERM on unlink frequently surfaces as errno -4048 / unsigned rollover.
+  return ($ExitCode -eq -4048) -or ($ExitCode -eq 4294963248)
+}
+
+function Write-NpmFileLockHintIfNeeded {
+  param([string] $WorkingDirectory, [long] $ExitCode)
+  if (-not (Test-LikelyNpmEpremFileLock -ExitCode $ExitCode)) {
+    return
+  }
+  $wd = Resolve-Path $WorkingDirectory -ErrorAction SilentlyContinue
+  $pathShow = if ($wd) { $wd.Path } else { $WorkingDirectory }
+  Write-Host ''
+  Write-Host 'hint: npm hit EPERM (file in use while replacing node_modules). Typical fixes:' -ForegroundColor Yellow
+  Write-Host '  - Stop Vite dev servers, test runners, and other terminals using tools in:' -ForegroundColor Yellow
+  Write-Host ('    "{0}"' -f $pathShow) -ForegroundColor DarkGray
+  Write-Host '    (often @esbuild/*/esbuild.exe).' -ForegroundColor DarkGray
+  Write-Host '  - Close antivirus real-time scan for the repo folder, then retry.' -ForegroundColor Yellow
+  Write-Host '  - Retry with:' -ForegroundColor Yellow
+  Write-Host '      .\scripts\run-acceptance-tests.ps1 -FreshFrontend' -ForegroundColor DarkGray
+  Write-Host '    or manually delete frontend\node_modules, then rerun.' -ForegroundColor Yellow
+  Write-Host '  - If policy allows, use `-UseInstall` instead of npm ci:' -ForegroundColor Yellow
+  Write-Host '      .\scripts\run-acceptance-tests.ps1 -FreshFrontend -UseInstall' -ForegroundColor DarkGray
+}
 
 function Invoke-NpmCommand {
   param(
@@ -43,13 +76,28 @@ function Invoke-NpmCommand {
   Push-Location $WorkingDirectory
   try {
     & npm @Arguments
+    $code = [long]$LASTEXITCODE
     if ($LASTEXITCODE -ne 0) {
-      throw "npm failed (exit $LASTEXITCODE): $Label"
+      Write-NpmFileLockHintIfNeeded -WorkingDirectory $PWD.Path -ExitCode $code
+      throw "npm failed (exit $($LASTEXITCODE)): $Label"
     }
   }
   finally {
     Pop-Location
   }
+}
+
+function Remove-TreeIfPresent {
+  param(
+    [string] $AbsolutePath,
+    [string] $Description
+  )
+  if (-not (Test-Path -LiteralPath $AbsolutePath)) {
+    Write-Host "[acceptance] skip $Description (missing): $AbsolutePath" -ForegroundColor DarkGray
+    return
+  }
+  Write-Host "[acceptance] removing $Description" -ForegroundColor Cyan
+  Remove-Item -LiteralPath $AbsolutePath -Recurse -Force -ErrorAction Stop
 }
 
 function Invoke-NodeCommand {
@@ -77,6 +125,10 @@ $npmInstallArgs = if ($UseInstall) { @('install') } else { @('ci') }
 $frontend = Join-Path $repoRoot 'frontend'
 if (-not (Test-Path (Join-Path $frontend 'package.json'))) {
   throw "Missing frontend/package.json: $frontend"
+}
+
+if ($FreshFrontend) {
+  Remove-TreeIfPresent (Join-Path $frontend 'node_modules') 'fresh frontend: frontend/node_modules'
 }
 
 Invoke-NpmCommand 'frontend: npm ci or install' $npmInstallArgs $frontend
