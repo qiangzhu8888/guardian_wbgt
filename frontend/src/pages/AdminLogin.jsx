@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import ThemeFullscreenControls from '../components/ThemeFullscreenControls';
 import { monitorHomePath } from '../lib/orgRoute';
-import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL } from '../lib/appBranding';
+import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from '../lib/appBranding';
 import { adminApiUrl } from '../lib/publicApi';
+import { PRIVACY_PATH, TERMS_PATH } from '../lib/productLandingCta';
 
 export default function AdminLogin() {
   const nav = useNavigate();
@@ -113,6 +114,20 @@ export default function AdminLogin() {
           >
             ← 監視画面へ
           </Link>
+        </p>
+        <p className="text-center text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pt-2 border-t border-slate-200/80 dark:border-slate-700/80">
+          <Link to={TERMS_PATH} className="text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+            利用規約
+          </Link>
+          <span className="mx-1.5 text-slate-400" aria-hidden>
+            ·
+          </span>
+          <Link to={PRIVACY_PATH} className="text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+            プライバシーポリシー
+          </Link>
+        </p>
+        <p className="text-center text-[10px] text-slate-400 dark:text-slate-500 pt-2">
+          制作・開発：{PRODUCTION_COMPANY_NAME}
         </p>
       </form>
     </div>

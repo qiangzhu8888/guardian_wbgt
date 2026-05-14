@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import ThemeFullscreenControls from './ThemeFullscreenControls';
 import MobileMonitorQrBlock from './MobileMonitorQrBlock';
 import { monitorHomePath } from '../lib/orgRoute';
-import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL } from '../lib/appBranding';
+import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from '../lib/appBranding';
 import { getAuthUser, requestAdminLogout } from '../lib/authSession';
 import { switchAdminOrg } from '../lib/publicApi';
 
@@ -159,6 +159,9 @@ export default function AdminLayout({ title, description, width = 'wide', header
           <div className="admin-page-body">{children}</div>
         </div>
       </main>
+      <footer className="border-t border-slate-200/80 dark:border-slate-800 py-3 px-4 text-center text-[10px] text-slate-500 dark:text-slate-500 shrink-0">
+        制作・開発：{PRODUCTION_COMPANY_NAME}
+      </footer>
     </div>
   );
 }

@@ -173,6 +173,15 @@ export function IconMonitor({ className }) {
   );
 }
 
+export function IconArrowUp({ className }) {
+  return (
+    <BaseIcon className={className}>
+      <path d="M12 19V5" />
+      <path d="m5 12 7-7 7 7" />
+    </BaseIcon>
+  );
+}
+
 export function IconArrowDown({ className }) {
   return (
     <BaseIcon className={className}>

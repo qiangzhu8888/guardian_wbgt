@@ -188,6 +188,40 @@ describe('api requireAuth', () => {
     jest.restoreAllMocks();
   });
 
+  it('GET /api/admin/location-conditions returns weather + wbgt (mocked Open-Meteo)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        current: { time: '2025-06-20T12:00', temperature_2m: 28.5, relative_humidity_2m: 60 },
+      }),
+    });
+    delete process.env.JWA_X_API_KEY;
+    delete process.env.JWA_APIKEY;
+    const token = jwt.sign(
+      { sub: 'u1', role: 'admin', orgId: 'default' },
+      process.env.JWT_ACCESS_SECRET,
+      { algorithm: 'HS256', expiresIn: '5m' },
+    );
+    const res = await request(app)
+      .get('/api/admin/location-conditions?lat=35.68&lon=139.76')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.code).toBe(200);
+    expect(res.body.tempCelsius).toBe(28.5);
+    expect(res.body.humidityPercent).toBe(60);
+    expect(res.body.wbgtSource).toBe('unavailable');
+    expect(res.body.wbgtCelsius).toBeNull();
+    expect(res.body.jwaConfigured).toBe(false);
+    expect(typeof res.body.jwaMessage).toBe('string');
+    expect(res.body.jwaMessage.length).toBeGreaterThan(0);
+    jest.restoreAllMocks();
+  });
+
+  it('GET /api/admin/location-conditions returns 401 without token', async () => {
+    const res = await request(app).get('/api/admin/location-conditions?lat=1&lon=2');
+    expect(res.status).toBe(401);
+  });
+
   it('GET /api/admin/geocode returns 401 without token', async () => {
     const res = await request(app).get('/api/admin/geocode?q=' + encodeURIComponent('東京都渋谷'));
     expect(res.status).toBe(401);

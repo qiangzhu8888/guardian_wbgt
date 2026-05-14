@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 
 describe('loadFunctionsDotEnv', () => {
   afterEach(() => {
@@ -8,12 +9,37 @@ describe('loadFunctionsDotEnv', () => {
     jest.resetModules();
   });
 
-  it('functions/.env が無い経路では dotenv.config を呼ばない', () => {
+  it('どちらの .env も無いときは dotenv.config を呼ばない', () => {
     jest.spyOn(fs, 'existsSync').mockReturnValue(false);
     const dotenv = require('dotenv');
     const configSpy = jest.spyOn(dotenv, 'config').mockImplementation(() => ({}));
     const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
     loadFunctionsDotEnv();
     expect(configSpy).not.toHaveBeenCalled();
+  });
+
+  it('functions/.env のみあるときは override true で1回だけ', () => {
+    const dotenv = require('dotenv');
+    const configSpy = jest.spyOn(dotenv, 'config').mockImplementation(() => ({}));
+    const fe = path.join(__dirname, '..', '.env');
+    const re = path.join(__dirname, '..', '..', '.env');
+    jest.spyOn(fs, 'existsSync').mockImplementation((p) => p === fe);
+    const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
+    loadFunctionsDotEnv();
+    expect(configSpy).toHaveBeenCalledTimes(1);
+    expect(configSpy).toHaveBeenCalledWith({ path: fe, override: true });
+  });
+
+  it('functions/.env と リポジトリ直下 .env があるときは2回（2回目は override false）', () => {
+    const dotenv = require('dotenv');
+    const configSpy = jest.spyOn(dotenv, 'config').mockImplementation(() => ({}));
+    const fe = path.join(__dirname, '..', '.env');
+    const re = path.join(__dirname, '..', '..', '.env');
+    jest.spyOn(fs, 'existsSync').mockImplementation((p) => p === fe || p === re);
+    const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
+    loadFunctionsDotEnv();
+    expect(configSpy).toHaveBeenCalledTimes(2);
+    expect(configSpy).toHaveBeenNthCalledWith(1, { path: fe, override: true });
+    expect(configSpy).toHaveBeenNthCalledWith(2, { path: re, override: false });
   });
 });

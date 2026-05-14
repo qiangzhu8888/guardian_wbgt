@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useBuildicsData } from './hooks/useBuildicsData';
 import { mergeFacilities } from './lib/mergeFacilities';
 import ThemeFullscreenControls from './components/ThemeFullscreenControls';
-import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL } from './lib/appBranding';
+import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from './lib/appBranding';
+import { PRODUCT_LANDING_PATH } from './lib/productLandingCta';
 import { DashboardView } from './monitoring/DashboardView';
 import { DetailView } from './monitoring/DetailView';
 
@@ -101,7 +102,7 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
           <div className="flex flex-col items-stretch sm:items-end gap-2 w-full sm:w-auto sm:flex-initial">
             <div className="flex items-center justify-end gap-2 sm:gap-3 flex-wrap w-full sm:w-auto">
               <ThemeFullscreenControls variant="monitor" />
-              <Link to="/product" className="btn-ghost-header shrink-0">
+              <Link to={PRODUCT_LANDING_PATH} className="btn-ghost-header shrink-0">
                 製品案内
               </Link>
               <Link to="/admin" className="btn-ghost-header shrink-0">
@@ -181,6 +182,7 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
           <p className="mt-1.5 text-slate-500 dark:text-slate-500">
             センサーデータ：BUILDICS® ／ WBGT 推定：Stull (2011) 湿球温度モデル
           </p>
+          <p className="mt-3 text-slate-500 dark:text-slate-500">制作・開発：{PRODUCTION_COMPANY_NAME}</p>
           {appVersion ? (
             <p className="mt-4 text-[10px] text-slate-600 dark:text-slate-500 tabular-nums tracking-wide">v{appVersion}</p>
           ) : null}

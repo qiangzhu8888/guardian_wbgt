@@ -1,8 +1,14 @@
 import { Link } from 'react-router-dom';
 import ThemeFullscreenControls from './ThemeFullscreenControls';
-import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL } from '../lib/appBranding';
+import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from '../lib/appBranding';
 import { getAppReleaseVersion } from '../lib/appRelease';
-import { productLandingCtaPaths, PRODUCT_LANDING_PATH } from '../lib/productLandingCta';
+import {
+  productLandingCtaPaths,
+  PRODUCT_LANDING_PATH,
+  TERMS_PATH,
+  PRIVACY_PATH,
+  SLIDES_PATH,
+} from '../lib/productLandingCta';
 
 const changelogPath = '/changelog';
 const manualPath = '/manual';
@@ -57,6 +63,15 @@ export default function PublicDocsLayout({ title, description, children }) {
             <Link to={manualPath} className="btn-ghost-header">
               マニュアル
             </Link>
+            <Link to={SLIDES_PATH} className="btn-ghost-header">
+              スライド
+            </Link>
+            <Link to={TERMS_PATH} className="btn-ghost-header">
+              利用規約
+            </Link>
+            <Link to={PRIVACY_PATH} className="btn-ghost-header">
+              プライバシー
+            </Link>
             <Link to={monitorPath} className="btn-ghost-header">
               監視画面
             </Link>
@@ -99,8 +114,20 @@ export default function PublicDocsLayout({ title, description, children }) {
             <Link to={manualPath} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
               管理マニュアル
             </Link>
+            <Link to={SLIDES_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              スライド紹介
+            </Link>
+            <Link to={TERMS_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              利用規約
+            </Link>
+            <Link to={PRIVACY_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              プライバシー
+            </Link>
           </div>
         </div>
+        <p className="mt-4 text-center text-[11px] text-slate-500 dark:text-slate-500">
+          制作・開発：{PRODUCTION_COMPANY_NAME}
+        </p>
       </footer>
     </div>
   );

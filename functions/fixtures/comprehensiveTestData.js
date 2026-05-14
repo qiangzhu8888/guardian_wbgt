@@ -224,7 +224,16 @@ function validateComprehensiveTestData() {
   for (const f of facilities) {
     const fid = f.facilityId;
     const oid = f.orgId;
-    const v = validateFacilityPayload(fid, f.name, f.sortOrder, f.address, f.lat, f.lng, f.placementType, f.venueCategory);
+    const v = validateFacilityPayload(
+      fid,
+      f.name,
+      f.sortOrder,
+      f.address,
+      f.lat,
+      f.lng,
+      f.placementType,
+      f.venueCategory,
+    );
     if (v) errors.push(`施設 ${fid}: ${v}`);
     if (!orgs.some((o) => o._docId === oid)) errors.push(`施設 ${fid}: 不明な orgId ${oid}`);
     if (!facByOrg.has(oid)) facByOrg.set(oid, new Map());

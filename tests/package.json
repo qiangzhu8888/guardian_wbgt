@@ -1,0 +1,12 @@
+{
+  "name": "sigma-top-wbgt-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:functional": "playwright test",
+    "test:e2e": "node -e \"process.exit(0)\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

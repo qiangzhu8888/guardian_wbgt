@@ -19,7 +19,7 @@ import {
   IconSparkles,
   IconThermometer,
 } from '../components/ProductLandingIcons';
-import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL } from '../lib/appBranding';
+import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from '../lib/appBranding';
 import { getAppReleaseVersion } from '../lib/appRelease';
 import { productLandingCtaPaths } from '../lib/productLandingCta';
 
@@ -143,7 +143,8 @@ function FlowArrow({ label }) {
 }
 
 export default function ProductLandingPage() {
-  const { monitorPath, adminLoginPath, changelogPath, manualPath } = productLandingCtaPaths();
+  const { monitorPath, adminLoginPath, changelogPath, manualPath, termsPath, privacyPath, slidesPath } =
+    productLandingCtaPaths();
   const version = getAppReleaseVersion();
 
   const heroPills = [
@@ -197,6 +198,15 @@ export default function ProductLandingPage() {
                 </Link>
                 <Link to={manualPath} className="text-white/90 hover:underline underline-offset-2 shrink-0">
                   管理マニュアル
+                </Link>
+                <Link to={slidesPath} className="text-white/90 hover:underline underline-offset-2 shrink-0">
+                  スライド紹介
+                </Link>
+                <Link to={termsPath} className="text-white/90 hover:underline underline-offset-2 shrink-0">
+                  利用規約
+                </Link>
+                <Link to={privacyPath} className="text-white/90 hover:underline underline-offset-2 shrink-0">
+                  プライバシー
                 </Link>
               </p>
             </div>
@@ -257,6 +267,15 @@ export default function ProductLandingPage() {
               管理者ログイン
             </Link>
           </div>
+          <p className="pt-2">
+            <Link
+              to={slidesPath}
+              className="text-sm font-semibold text-sky-700 dark:text-sky-400 hover:underline underline-offset-4 inline-flex items-center gap-1.5 justify-center"
+            >
+              <IconSparkles className="h-4 w-4 opacity-90" />
+              スライド形式で概要を見る
+            </Link>
+          </p>
         </section>
 
         {/* 特徴 */}
@@ -430,6 +449,15 @@ export default function ProductLandingPage() {
             <Link to={manualPath} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
               管理マニュアル
             </Link>
+            <Link to={slidesPath} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              スライド紹介
+            </Link>
+            <Link to={termsPath} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              利用規約
+            </Link>
+            <Link to={privacyPath} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              プライバシー
+            </Link>
             <Link
               to={monitorPath}
               className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4 inline-flex items-center gap-1.5"
@@ -439,6 +467,9 @@ export default function ProductLandingPage() {
             </Link>
           </div>
         </div>
+        <p className="mt-6 text-center text-[11px] text-slate-500 dark:text-slate-500">
+          制作・開発：{PRODUCTION_COMPANY_NAME}
+        </p>
       </footer>
     </div>
   );
