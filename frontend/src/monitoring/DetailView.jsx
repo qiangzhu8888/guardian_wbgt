@@ -13,6 +13,8 @@ import { getWBGTLevel } from '../lib/wbgt';
 import { getLevelStyle, getWbgtColor } from './levelStyles';
 import { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
 import { WbgtGuidelinesPanel } from './WbgtGuidelinesPanel.jsx';
+import { JwaWbgtReferencePanel } from './JwaWbgtReferencePanel.jsx';
+import { JmaHeatAdvisoryPanel } from './JmaHeatAdvisoryPanel.jsx';
 import MobileMonitorQrBlock from '../components/MobileMonitorQrBlock';
 import { useDarkClass } from '../hooks/useDarkClass';
 
@@ -128,7 +130,7 @@ export function DetailView({
           <img
             src={facility.installationPhotoUrl}
             alt={`${facility.name}の設置場所`}
-            className="w-full max-h-56 object-cover"
+            className="w-full max-h-[16.8rem] object-cover"
             loading="lazy"
             onError={(e) => {
               e.target.style.display = 'none';
@@ -140,9 +142,24 @@ export function DetailView({
       <div className={`rounded-xl ${style.bg} border p-5`}>
         <div className="grid grid-cols-3 gap-4 text-center">
           {[
-            { label: 'WBGT 暑さ指数', value: facility.wbgt, unit: '℃', color: style.text },
-            { label: '気温', value: facility.temp, unit: '℃', color: 'text-gray-700 dark:text-slate-200' },
-            { label: '湿度', value: facility.humidity, unit: '%', color: 'text-gray-700 dark:text-slate-200' },
+            {
+              label: facility.isMock ? 'WBGT 暑さ指数（デモ）' : 'WBGT 暑さ指数（現場センサー推定）',
+              value: facility.wbgt,
+              unit: '℃',
+              color: style.text,
+            },
+            {
+              label: facility.isMock ? '気温（デモ）' : '気温',
+              value: facility.temp,
+              unit: '℃',
+              color: 'text-gray-700 dark:text-slate-200',
+            },
+            {
+              label: facility.isMock ? '湿度（デモ）' : '湿度',
+              value: facility.humidity,
+              unit: '%',
+              color: 'text-gray-700 dark:text-slate-200',
+            },
           ].map((item) => (
             <div key={item.label}>
               <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">{item.label}</p>
@@ -156,7 +173,9 @@ export function DetailView({
             {facility.weatherIcon} 天気：{facility.weather}　
             最終更新：{facility.updated}　
             {!facility.isMock && (
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">● リアルタイムデータ</span>
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                ● 現場センサーのリアルタイムデータ
+              </span>
             )}
           </p>
         </div>
@@ -186,6 +205,8 @@ export function DetailView({
       </div>
 
       <WbgtGuidelinesPanel variant="detail" />
+
+      <JmaHeatAdvisoryPanel lat={Number(facility.lat)} lng={Number(facility.lng)} />
 
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-600 shadow-soft p-4">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -347,6 +368,8 @@ export function DetailView({
           </table>
         </div>
       </div>
+
+      <JwaWbgtReferencePanel lat={Number(facility.lat)} lng={Number(facility.lng)} />
 
       {!facility.isMock && (
         <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-600 shadow-soft p-4">

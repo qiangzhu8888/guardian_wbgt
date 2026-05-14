@@ -6,18 +6,7 @@ import {
   parseDeviceBulkCsv,
   DEVICE_BULK_CSV_TEMPLATE,
 } from '../lib/parseDeviceBulkCsv';
-import { clearAuthSession } from '../lib/authSession';
-
-function apiUrl(path) {
-  if (import.meta.env.DEV && import.meta.env.VITE_API_BASE) {
-    return `${import.meta.env.VITE_API_BASE.replace(/\/$/, '')}${path}`;
-  }
-  return path;
-}
-
-function getToken() {
-  return sessionStorage.getItem('accessToken') || '';
-}
+import { adminApiFetch, clearAuthSession } from '../lib/authSession';
 
 const BULK_CHUNK = 100;
 const BULK_PREVIEW_ROWS = 10;
@@ -44,11 +33,7 @@ export default function AdminDevices() {
   const [qrOpen, setQrOpen] = useState(false);
 
   async function loadFacilities() {
-    const token = getToken();
-    if (!token) return;
-    const res = await fetch(apiUrl('/api/admin/facilities'), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await adminApiFetch('/api/admin/facilities');
     const j = await res.json().catch(() => ({}));
     if (res.ok && Array.isArray(j.data)) {
       const enabled = j.data.filter((f) => !f.disabled);
@@ -62,16 +47,9 @@ export default function AdminDevices() {
   }
 
   async function load() {
-    const token = getToken();
-    if (!token) {
-      nav('/admin/login');
-      return;
-    }
     setErr('');
     setLoading(true);
-    const res = await fetch(apiUrl('/api/admin/devices'), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await adminApiFetch('/api/admin/devices');
     const j = await res.json().catch(() => ({}));
     setLoading(false);
     if (res.status === 401 || res.status === 403) {
@@ -105,13 +83,11 @@ export default function AdminDevices() {
   }
 
   async function patchDeviceFacility(did, newFacilityId) {
-    const token = getToken();
     setErr('');
-    const res = await fetch(apiUrl(`/api/admin/devices/${encodeURIComponent(did)}`), {
+    const res = await adminApiFetch(`/api/admin/devices/${encodeURIComponent(did)}`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ facilityId: Number(newFacilityId) }),
     });
@@ -125,15 +101,13 @@ export default function AdminDevices() {
 
   async function addOne(e) {
     e.preventDefault();
-    const token = getToken();
     setErr('');
     setSuccessMsg('');
     setSaving(true);
-    const res = await fetch(apiUrl('/api/admin/devices'), {
+    const res = await adminApiFetch('/api/admin/devices', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         deviceId,
@@ -154,7 +128,6 @@ export default function AdminDevices() {
   }
 
   async function submitBulkChunks(itemsPayload) {
-    const token = getToken();
     setErr('');
     setSuccessMsg('');
     setSaving(true);
@@ -165,11 +138,10 @@ export default function AdminDevices() {
       for (let c = 0; c < nChunks; c += 1) {
         const slice = itemsPayload.slice(c * BULK_CHUNK, (c + 1) * BULK_CHUNK);
         setBulkBatch({ completed: c, total: nChunks, rows: itemsPayload.length });
-        const res = await fetch(apiUrl('/api/admin/devices/bulk'), {
+        const res = await adminApiFetch('/api/admin/devices/bulk', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ items: slice }),
         });

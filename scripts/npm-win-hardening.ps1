@@ -39,7 +39,7 @@ function Write-NpmFileLockHintIfNeeded {
   Write-Host '  - Retry after a clean frontend install:' -ForegroundColor Yellow
   Write-Host '      .\scripts\deploy-production.ps1 -FreshFrontend -UseInstall' -ForegroundColor DarkGray
   Write-Host '      .\scripts\run-acceptance-tests.ps1 -FreshFrontend -UseInstall' -ForegroundColor DarkGray
-  Write-Host '  - On Windows, scripts may retry once after deleting `<pkg>/node_modules` (omit with `-NoFrontendEpermRecover` / `-NoFunctionsEpermRecover` where documented).' -ForegroundColor Yellow
+  Write-Host '  - On Windows EPERM retry may delete node_modules and re-run npm ci; if deletion fails too, npm install is tried once instead.' -ForegroundColor Yellow
 }
 
 function Invoke-RobustNpm {
@@ -83,7 +83,23 @@ function Invoke-RobustNpm {
           Remove-TreeIfPresent $LogPrefix $nm 'locked npm workspace: node_modules'
         }
         catch {
-          throw "cannot remove $($nm): stop Vite npm rollup locks: $($_.Exception.Message)"
+          # npm ci が esbuild.exe などをロックしているとフォルダごと削除できない。削除なしで npm install ならよく完了する。
+          $usedCi = $NpmArguments -contains 'ci'
+          if (-not $usedCi) {
+            throw "cannot remove $($nm): stop Vite npm rollup locks: $($_.Exception.Message)"
+          }
+          Write-Host "$LogPrefix cannot remove $($nm): $($_.Exception.Message)" -ForegroundColor Yellow
+          Write-Host "$LogPrefix fallback once: npm install (in-place) instead of npm ci—stop other Vite/webpack terminals later for a clean install." -ForegroundColor Yellow
+          $installArgs = @()
+          foreach ($a in $NpmArguments) {
+            if ($a -eq 'ci') { $installArgs += 'install' } else { $installArgs += $a }
+          }
+          & npm @installArgs
+          if ($LASTEXITCODE -eq 0) {
+            return
+          }
+          Write-NpmFileLockHintIfNeeded -WorkingDirectory $PWD.Path -ExitCode ([long]$LASTEXITCODE)
+          throw "npm failed after EPERM fallback to install (exit $($LASTEXITCODE)): $Label"
         }
         continue
       }

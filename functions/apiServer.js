@@ -51,6 +51,9 @@ const {
 } = require('./lib/facilityPhotoStorage');
 const { geocodeAddressWithGsi } = require('./lib/gsiGeocode');
 const { signAccess, signRefresh, verifyAccess, verifyRefresh } = require('./lib/jwtEnv');
+const jwaWbgt = require('./lib/jwaWbgtClient');
+const jmaHeatAdvisory = require('./lib/jmaHeatAdvisoryClient');
+const { fetchLocationConditions } = require('./lib/locationConditions');
 
 const BUILDICS_API_BASE = 'https://www.buildics.jp/api';
 
@@ -71,7 +74,8 @@ function publicInstallationPhotoUrl(data) {
 function facilityToMockCard(id, data) {
   const name = (data.name || `施設 ${id}`).trim();
   const pic = publicInstallationPhotoUrl(data);
-  return {
+  /** @type {Record<string, unknown>} */
+  const card = {
     id,
     name,
     wbgt: 28,
@@ -90,6 +94,7 @@ function facilityToMockCard(id, data) {
     ...(Number.isFinite(Number(data.lng)) ? { lng: Number(data.lng) } : {}),
     ...(pic ? { installationPhotoUrl: pic } : {}),
   };
+  return card;
 }
 
 async function orgHasEnabledFacilities(db, oid) {
@@ -318,6 +323,251 @@ function createApiApp() {
       }
       console.error('public config', e);
       res.json(defaultPublicConfig);
+    }
+  });
+
+  /** 日本気象協会（JWA）WBGT API 連携可否（キー設定の有無のみ） */
+  app.get('/api/public/jwa-wbgt/status', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    res.json({ configured: jwaWbgt.isJwaConfigured() });
+  });
+
+  /**
+   * JWA 1km メッシュ WBGT 予測（時別）。緯度・経度は施設マスタ等と突合。
+   * @query lat, lon（または lng）
+   */
+  app.get('/api/public/jwa-wbgt/forecasts/hourly', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    if (!jwaWbgt.isJwaConfigured()) {
+      return res.status(503).json({
+        code: 503,
+        msg: '日本気象協会 WBGT API が未設定です（JWA_X_API_KEY / JWA_APIKEY）',
+        configured: false,
+      });
+    }
+    const ll = jwaWbgt.parseLatLonQuery(req.query);
+    if (!ll) {
+      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+    }
+    try {
+      const payload = await jwaWbgt.fetchHourlyForecastByPoint(ll.lat, ll.lng);
+      if (payload && payload.error) {
+        console.error('jwa hourly normalize', payload);
+        return res.status(502).json({ code: 502, msg: payload.message || 'JWA 応答の解釈に失敗しました' });
+      }
+      return res.json({
+        source: 'jwa',
+        kind: 'forecasts/hourly',
+        attribution: '日本気象協会（JWA）WBGT API・1km メッシュ予測（参考）',
+        point: { lat: ll.lat, lon: ll.lng },
+        ...payload,
+      });
+    } catch (e) {
+      if (e && e.code === 'not_configured') {
+        return res.status(503).json({ code: 503, msg: e.message, configured: false });
+      }
+      console.error('jwa hourly', e && e.message, e && e.bodySnippet);
+      const status = e && e.status === 401 ? 502 : 502;
+      return res.status(status).json({
+        code: status,
+        msg: e && e.message ? String(e.message) : 'JWA API の取得に失敗しました',
+      });
+    }
+  });
+
+  /**
+   * JWA 1km メッシュ WBGT 予測（日別・最大8日）
+   */
+  app.get('/api/public/jwa-wbgt/forecasts/daily', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    if (!jwaWbgt.isJwaConfigured()) {
+      return res.status(503).json({
+        code: 503,
+        msg: '日本気象協会 WBGT API が未設定です（JWA_X_API_KEY / JWA_APIKEY）',
+        configured: false,
+      });
+    }
+    const ll = jwaWbgt.parseLatLonQuery(req.query);
+    if (!ll) {
+      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+    }
+    try {
+      const payload = await jwaWbgt.fetchDailyForecastByPoint(ll.lat, ll.lng);
+      if (payload && payload.error) {
+        console.error('jwa daily normalize', payload);
+        return res.status(502).json({ code: 502, msg: payload.message || 'JWA 応答の解釈に失敗しました' });
+      }
+      return res.json({
+        source: 'jwa',
+        kind: 'forecasts/daily',
+        attribution: '日本気象協会（JWA）WBGT API・1km メッシュ予測（参考）',
+        point: { lat: ll.lat, lon: ll.lng },
+        ...payload,
+      });
+    } catch (e) {
+      if (e && e.code === 'not_configured') {
+        return res.status(503).json({ code: 503, msg: e.message, configured: false });
+      }
+      console.error('jwa daily', e && e.message, e && e.bodySnippet);
+      return res.status(502).json({
+        code: 502,
+        msg: e && e.message ? String(e.message) : 'JWA API の取得に失敗しました',
+      });
+    }
+  });
+
+  /**
+   * ダッシュボード用: 複数地点の JWA 時別予測を一括取得（地点ごとに JWA API を呼び出し）
+   */
+  app.post('/api/public/jwa-wbgt/forecasts/hourly/batch', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    if (!jwaWbgt.isJwaConfigured()) {
+      return res.status(503).json({
+        code: 503,
+        msg: '日本気象協会 WBGT API が未設定です（JWA_X_API_KEY / JWA_APIKEY）',
+        configured: false,
+      });
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const raw = body.facilities;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return res.status(400).json({ code: 400, msg: 'facilities は1件以上の配列で指定してください' });
+    }
+    if (raw.length > jwaWbgt.JWA_BATCH_MAX) {
+      return res.status(400).json({
+        code: 400,
+        msg: `facilities は${jwaWbgt.JWA_BATCH_MAX}件までです`,
+      });
+    }
+    const items = [];
+    for (const row of raw) {
+      const id = row.id != null ? row.id : row.facilityId;
+      if (id == null || id === '') continue;
+      const ll = jwaWbgt.parseLatLonQuery({
+        lat: row.lat,
+        lon: row.lon != null ? row.lon : row.lng,
+      });
+      if (ll) items.push({ id, lat: ll.lat, lng: ll.lng });
+    }
+    if (items.length === 0) {
+      return res.status(400).json({
+        code: 400,
+        msg: '有効な id・lat・lng（または lon）を含む施設がありません',
+      });
+    }
+    try {
+      const results = await jwaWbgt.fetchHourlyForecastBatch(items);
+      return res.json({
+        source: 'jwa',
+        kind: 'forecasts/hourly/batch',
+        attribution: '日本気象協会（JWA）WBGT API・1km メッシュ予測（参考）',
+        results,
+      });
+    } catch (e) {
+      if (e && e.code === 'not_configured') {
+        return res.status(503).json({ code: 503, msg: e.message, configured: false });
+      }
+      console.error('jwa hourly batch', e && e.message);
+      return res.status(502).json({
+        code: 502,
+        msg: e && e.message ? String(e.message) : 'JWA API の一括取得に失敗しました',
+      });
+    }
+  });
+
+  /**
+   * 気象庁「熱中症警戒アラート」（VPFT50）の有無・参考文面。
+   * 緯度経度は国土地理院逆ジオで都道府県を特定（日本国内想定）。
+   */
+  app.get('/api/public/jma-wbgt/advisory', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const ll = jmaHeatAdvisory.parseLatLonQuery(req.query);
+    if (!ll) {
+      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+    }
+    try {
+      const payload = await jmaHeatAdvisory.fetchHeatAdvisoryForPoint(ll.lat, ll.lng);
+      return res.json({
+        source: 'jma',
+        kind: 'heat_stroke_advisory',
+        attribution: '気象庁 防災情報 XML（熱中症警戒アラート・VPFT50／参考）',
+        point: { lat: ll.lat, lon: ll.lng },
+        ...payload,
+      });
+    } catch (e) {
+      if (e && e.code === 'geocode_failed') {
+        return res.status(422).json({
+          code: 422,
+          msg: e.message || '位置から都道府県を判定できませんでした',
+        });
+      }
+      if (e && e.code === 'feed_failed') {
+        console.error('jma heat advisory feed', e && e.message);
+        return res.status(502).json({
+          code: 502,
+          msg: e.message || '気象庁フィードの取得に失敗しました',
+        });
+      }
+      console.error('jma heat advisory', e && e.message);
+      return res.status(502).json({
+        code: 502,
+        msg: e && e.message ? String(e.message) : '気象庁参照情報の取得に失敗しました',
+      });
+    }
+  });
+
+  /**
+   * ダッシュボード用: 複数施設の気象庁熱中症警戒アラートを一括照会（Atom フィードは1回）
+   */
+  app.post('/api/public/jma-wbgt/advisory/batch', async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const raw = body.facilities;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return res.status(400).json({ code: 400, msg: 'facilities は1件以上の配列で指定してください' });
+    }
+    if (raw.length > jmaHeatAdvisory.BATCH_MAX) {
+      return res.status(400).json({
+        code: 400,
+        msg: `facilities は${jmaHeatAdvisory.BATCH_MAX}件までです`,
+      });
+    }
+    const items = [];
+    for (const row of raw) {
+      const id = row.id != null ? row.id : row.facilityId;
+      if (id == null || id === '') continue;
+      const lat = Number(row.lat);
+      const lng = Number(row.lon != null ? row.lon : row.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      items.push({ id, lat, lng });
+    }
+    if (items.length === 0) {
+      return res.status(400).json({
+        code: 400,
+        msg: '有効な id・lat・lng（または lon）を含む施設がありません',
+      });
+    }
+    try {
+      const results = await jmaHeatAdvisory.fetchHeatAdvisoryBatch(items);
+      return res.json({
+        source: 'jma',
+        kind: 'heat_stroke_advisory/batch',
+        attribution: '気象庁 防災情報 XML（熱中症警戒アラート・VPFT50／参考）',
+        results,
+      });
+    } catch (e) {
+      if (e && e.code === 'feed_failed') {
+        console.error('jma heat advisory batch feed', e && e.message);
+        return res.status(502).json({
+          code: 502,
+          msg: e.message || '気象庁フィードの取得に失敗しました',
+        });
+      }
+      console.error('jma heat advisory batch', e && e.message);
+      return res.status(502).json({
+        code: 502,
+        msg: e && e.message ? String(e.message) : '気象庁参照情報の一括取得に失敗しました',
+      });
     }
   });
 
@@ -622,10 +872,28 @@ function createApiApp() {
     res.json(body);
   });
 
+  app.get('/api/admin/location-conditions', requireAuth('admin'), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const ll = jwaWbgt.parseLatLonQuery(req.query);
+    if (!ll) {
+      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+    }
+    try {
+      const data = await fetchLocationConditions({ lat: ll.lat, lng: ll.lng, jwaWbgt });
+      return res.json({ code: 200, ...data });
+    } catch (e) {
+      console.error('location-conditions', e && e.message);
+      const msg =
+        e && (e.code === 'open_meteo_http' || e.code === 'open_meteo_parse' || e.code === 'open_meteo_network')
+          ? String(e.message)
+          : '付近の気象情報の取得に失敗しました';
+      return res.status(502).json({ code: 502, msg });
+    }
+  });
+
   app.post('/api/admin/facilities', requireAuth('admin'), async (req, res) => {
     applyCors(res, corsHeaders(req));
-    const { facilityId, name, sortOrder, address, lat, lng, placementType, venueCategory } =
-      req.body || {};
+    const { facilityId, name, sortOrder, address, lat, lng, placementType, venueCategory } = req.body || {};
     const verr = validateFacilityPayload(
       facilityId,
       name,

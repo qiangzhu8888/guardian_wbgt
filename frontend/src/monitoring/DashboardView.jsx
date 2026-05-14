@@ -1,11 +1,134 @@
 import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  CartesianGrid,
+  Line,
+  ComposedChart,
+  ReferenceArea,
+  ReferenceLine,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import MobileMonitorQrBlock from '../components/MobileMonitorQrBlock';
+import {
+  buildJwaChartRowsWithPastFutureSplit,
+  buildJwaDashboardPreviewSeries,
+  pickJwaChartXTicks,
+  wbgtChartYDomain,
+  wbgtYReferenceBandAreas,
+} from '../lib/jwaDashboardPreviewSeries';
+import { postJwaHourlyForecastBatch } from '../lib/jwaWbgtApi';
 import { PRODUCT_LANDING_PATH } from '../lib/productLandingCta';
+import { useDarkClass } from '../hooks/useDarkClass';
 import { getLevelStyle } from './levelStyles';
 import { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
 import { WbgtGuidelinesPanel } from './WbgtGuidelinesPanel.jsx';
 
+/** @param {string} idStr */
+function parseBatchFacilityId(idStr) {
+  const idNum = Number(idStr);
+  return Number.isFinite(idNum) && String(Math.trunc(idNum)) === idStr ? idNum : idStr;
+}
+
 export { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
+
+/** @param {{ preview?: Array<{ time?: string|null, wbgtCelsius?: number|null }> }} props */
+function JwaHourlyPreviewChart({ preview }) {
+  const isDark = useDarkClass();
+  const data = useMemo(() => buildJwaDashboardPreviewSeries(preview), [preview]);
+  const [yMin, yMax] = useMemo(() => wbgtChartYDomain(data), [data]);
+  const nowMs = Date.now();
+  const { rows, allPast, allFuture, nowInRange } = useMemo(
+    () => buildJwaChartRowsWithPastFutureSplit(data, nowMs),
+    [data, nowMs],
+  );
+  const bands = useMemo(
+    () => wbgtYReferenceBandAreas(yMin, yMax, isDark ? 'dark' : 'light'),
+    [yMin, yMax, isDark],
+  );
+  const ticks = useMemo(() => pickJwaChartXTicks(data.map((d) => d.ts), 8), [data]);
+  const axisTickFill = isDark ? '#94a3b8' : '#64748b';
+  const gridStroke = isDark ? '#47556980' : '#cbd5e1';
+
+  if (data.length === 0) return null;
+
+  const caption =
+    allFuture
+      ? '破線のみ＝すべて将来の予測枠。縦線＝現在（予測期間に含まれるとき）。緑〜赤の帯は暑さ指数の目安区分です。'
+      : allPast
+        ? '予測タイムステップがいずれも現在より前です。帯は目安区分。'
+        : '実線＝現在まで／破線＝この先の予測。縦線＝現在。帯は目安区分。';
+
+  return (
+    <div className="mt-2 space-y-1 pointer-events-none" aria-hidden>
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] text-slate-600 dark:text-slate-400 leading-tight">
+        <span className="tabular-nums">緑〜赤：ほぼ安全〜危険</span>
+      </div>
+      <div className="h-[152px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={rows} margin={{ top: 6, right: 8, bottom: 2, left: 2 }}>
+            {bands.map((b) => (
+              <ReferenceArea key={b.key} y1={b.y1} y2={b.y2} fill={b.fill} strokeOpacity={0} />
+            ))}
+            <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
+            <XAxis
+              type="number"
+              dataKey="ts"
+              domain={['dataMin', 'dataMax']}
+              ticks={ticks}
+              tickFormatter={(ts) =>
+                new Date(Number(ts)).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+              }
+              tick={{ fontSize: 9, fill: axisTickFill }}
+              stroke={gridStroke}
+            />
+            <YAxis domain={[yMin, yMax]} tick={{ fontSize: 9, fill: axisTickFill }} stroke={gridStroke} width={30} />
+            {nowInRange ? (
+              <ReferenceLine
+                x={nowMs}
+                stroke={isDark ? '#94a3b8' : '#64748b'}
+                strokeWidth={1}
+                strokeDasharray="3 5"
+                isFront
+                label={{
+                  value: '現在',
+                  position: 'insideTopLeft',
+                  fill: axisTickFill,
+                  fontSize: 9,
+                }}
+              />
+            ) : null}
+            {!allFuture ? (
+              <Line
+                type="monotone"
+                dataKey="wbgtSolid"
+                stroke={isDark ? '#e2e8f0' : '#334155'}
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ) : null}
+            {!allPast ? (
+              <Line
+                type="monotone"
+                dataKey="wbgtForecast"
+                stroke="#0284c7"
+                strokeWidth={2.5}
+                strokeDasharray="5 5"
+                dot={false}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ) : null}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="text-[9px] text-slate-500 dark:text-slate-500 leading-snug">{caption}</p>
+    </div>
+  );
+}
 
 export function DashboardView({
   facilities,
@@ -17,6 +140,54 @@ export function DashboardView({
   orgSlug,
 }) {
   const topFacility = facilities.find((f) => f.level !== '通信異常' && f.level !== 'ほぼ安全');
+
+  const jwaBatchKey = facilities
+    .filter((f) => Number.isFinite(Number(f.lat)) && Number.isFinite(Number(f.lng)))
+    .map((f) => `${String(f.id)}:${Number(f.lat)}:${Number(f.lng)}`)
+    .sort()
+    .join('|');
+
+  const [jwaMeshById, setJwaMeshById] = useState({});
+  const [jwaMeshStatus, setJwaMeshStatus] = useState('idle');
+
+  useEffect(() => {
+    if (!jwaBatchKey) {
+      setJwaMeshById({});
+      setJwaMeshStatus('idle');
+      return;
+    }
+    const jwaRows = jwaBatchKey.split('|').map((seg) => {
+      const [idStr, latStr, lngStr] = seg.split(':');
+      return { id: parseBatchFacilityId(idStr), lat: Number(latStr), lng: Number(lngStr) };
+    });
+
+    let cancelled = false;
+    setJwaMeshStatus('loading');
+
+    (async () => {
+      const jwaR = await postJwaHourlyForecastBatch(jwaRows);
+      if (cancelled) return;
+
+      if (!jwaR.ok) {
+        setJwaMeshById({});
+        if (jwaR.status === 503) {
+          setJwaMeshStatus('unconfigured');
+        } else {
+          setJwaMeshStatus('error');
+        }
+        return;
+      }
+      const map = {};
+      for (const row of jwaR.json.results || []) {
+        if (row && row.id != null) map[String(row.id)] = row;
+      }
+      setJwaMeshById(map);
+      setJwaMeshStatus('ok');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jwaBatchKey]);
 
   const counts = {
     危険: facilities.filter((f) => f.level === '危険').length,
@@ -150,7 +321,7 @@ export function DashboardView({
                     src={f.installationPhotoUrl}
                     alt=""
                     loading="lazy"
-                    className="h-12 w-12 rounded-lg object-cover border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 flex-shrink-0"
+                    className="size-[3.6rem] rounded-lg object-cover border border-slate-200 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 flex-shrink-0"
                     onError={(e) => {
                       e.target.style.display = 'none';
                     }}
@@ -162,12 +333,64 @@ export function DashboardView({
               </p>
 
               <div className="mb-3">
-                <p className="text-xs text-gray-400 dark:text-slate-500 mb-0.5">現在 WBGT</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500 mb-0.5">
+                  {f.isMock ? '現在の WBGT（デモ）' : '現在の WBGT（現場センサーに基づく推定値）'}
+                </p>
                 <p className={`text-4xl font-extrabold leading-none ${style.text}`}>
                   {f.wbgt}
                   <span className="text-base font-normal text-gray-400 dark:text-slate-500 ml-1">℃</span>
                 </p>
               </div>
+
+              {Number.isFinite(Number(f.lat)) && Number.isFinite(Number(f.lng)) && jwaMeshStatus !== 'unconfigured' ? (
+                <div className="mb-3 rounded-lg border border-sky-100/90 dark:border-sky-900/45 bg-sky-50/55 dark:bg-sky-950/22 px-2.5 py-2">
+                  <p className="text-[10px] font-semibold text-sky-900/90 dark:text-sky-200/95">
+                    地点付近・WBGT 予測（日本気象協会・1km・参考）
+                  </p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-0.5 leading-snug">
+                    登録した緯度・経度を基準としたメッシュ予測です。センサー実測値とは異なる場合があります。
+                  </p>
+                  {jwaMeshStatus === 'loading' ? (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">取得中…</p>
+                  ) : jwaMeshStatus === 'error' ? (
+                    <p className="text-[11px] text-sky-900/80 dark:text-sky-300/90 mt-1">取得に失敗しました</p>
+                  ) : (
+                    (() => {
+                      const row = jwaMeshById[String(f.id)];
+                      if (!row || row.ok === false) {
+                        return (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                            {row && typeof row.msg === 'string' ? row.msg : '—'}
+                          </p>
+                        );
+                      }
+                      const prev = Array.isArray(row.preview) ? row.preview : [];
+                      if (prev.length === 0) {
+                        return <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">予測がありません</p>;
+                      }
+                      const seriesPts = buildJwaDashboardPreviewSeries(prev);
+                      return (
+                        <div className="mt-1">
+                          {row.meshCode ? (
+                            <p className="text-[10px] text-slate-500 dark:text-slate-500 tabular-nums">
+                              メッシュ {row.meshCode}
+                            </p>
+                          ) : null}
+                          {seriesPts.length === 0 ? (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                              グラフ表示に使える時系列がありません
+                            </p>
+                          ) : (
+                            <>
+                              <JwaHourlyPreviewChart preview={prev} />
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              ) : null}
 
               <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-700">
                 <span className="text-xs text-gray-400 dark:text-slate-500">最終更新 {f.updated}</span>

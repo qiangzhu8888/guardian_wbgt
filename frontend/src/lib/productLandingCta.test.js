@@ -5,6 +5,9 @@ import {
   PRODUCT_LANDING_PATH,
   CHANGELOG_PATH,
   MANUAL_PATH,
+  TERMS_PATH,
+  PRIVACY_PATH,
+  SLIDES_PATH,
 } from './productLandingCta';
 import { monitorHomePath } from './orgRoute';
 
@@ -23,14 +26,28 @@ describe('productLandingCta', () => {
   });
 
   it('exposes fixed admin, product, docs paths', () => {
-    const { adminLoginPath, productPath, changelogPath, manualPath } = productLandingCtaPaths();
+    const {
+      adminLoginPath,
+      productPath,
+      changelogPath,
+      manualPath,
+      termsPath,
+      privacyPath,
+      slidesPath,
+    } = productLandingCtaPaths();
     expect(adminLoginPath).toBe(ADMIN_LOGIN_PATH);
     expect(adminLoginPath).toBe('/admin/login');
     expect(productPath).toBe(PRODUCT_LANDING_PATH);
-    expect(productPath).toBe('/product');
+    expect(productPath).toBe('/');
     expect(changelogPath).toBe(CHANGELOG_PATH);
     expect(changelogPath).toBe('/changelog');
     expect(manualPath).toBe(MANUAL_PATH);
     expect(manualPath).toBe('/manual');
+    expect(termsPath).toBe(TERMS_PATH);
+    expect(termsPath).toBe('/terms');
+    expect(privacyPath).toBe(PRIVACY_PATH);
+    expect(privacyPath).toBe('/privacy');
+    expect(slidesPath).toBe(SLIDES_PATH);
+    expect(slidesPath).toBe('/slides');
   });
 });
