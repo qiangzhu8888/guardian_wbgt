@@ -7,6 +7,8 @@ const {
   getBuildicsApiKeyForLedger,
   normalizeBuildicsApiKeyPatch,
   buildAdminOrgSettingsResponse,
+  validatePollingIntervalMsPatch,
+  parseStoredPollingIntervalMs,
 } = require('../lib/orgDashboardMerge');
 
 describe('orgDashboardMerge', () => {
@@ -29,6 +31,40 @@ describe('orgDashboardMerge', () => {
     expect(out.themePrimary).toBe('#AABBCC');
     expect(out.logoUrl).toBe('https://storage.googleapis.com/b/logo.png');
     expect(out.buildicsApiKey).toBeUndefined();
+  });
+
+  it('mergeOrgDashboardIntoConfig merges polling.intervalMs and keeps other polling keys', () => {
+    const base = {
+      title: 'Default Title',
+      polling: { intervalMs: 60000, historyHours: 6, staleMinutes: 10 },
+    };
+    const out = mergeOrgDashboardIntoConfig({ ...base }, { pollingIntervalMs: 300000 });
+    expect(out.polling.intervalMs).toBe(300000);
+    expect(out.polling.historyHours).toBe(6);
+    expect(out.polling.staleMinutes).toBe(10);
+  });
+
+  it('mergeOrgDashboardIntoConfig ignores absent org pollingIntervalMs', () => {
+    const base = {
+      polling: { intervalMs: 45000, historyHours: 3 },
+    };
+    const out = mergeOrgDashboardIntoConfig({ ...base }, { dashboardTitle: 'X' });
+    expect(out.polling.intervalMs).toBe(45000);
+  });
+
+  it('validatePollingIntervalMsPatch clamps validity', () => {
+    expect(validatePollingIntervalMsPatch('')).toEqual({ ok: true, value: '' });
+    expect(validatePollingIntervalMsPatch(null)).toEqual({ ok: true, value: '' });
+    expect(validatePollingIntervalMsPatch(59999).ok).toBe(false);
+    expect(validatePollingIntervalMsPatch(60000)).toEqual({ ok: true, value: 60000 });
+    expect(validatePollingIntervalMsPatch(3600000)).toEqual({ ok: true, value: 3600000 });
+    expect(validatePollingIntervalMsPatch(86400001).ok).toBe(false);
+  });
+
+  it('parseStoredPollingIntervalMs rejects out of range', () => {
+    expect(parseStoredPollingIntervalMs(null)).toBeNull();
+    expect(parseStoredPollingIntervalMs(60000)).toBe(60000);
+    expect(parseStoredPollingIntervalMs(30000)).toBeNull();
   });
 
   it('mergeOrgDashboardIntoConfig ignores invalid theme and http logo', () => {
@@ -124,6 +160,16 @@ describe('orgDashboardMerge', () => {
       expect(r.buildicsApiKeyConfigured).toBe(true);
       expect(r.buildicsApiKeyLast4).toBe('tkey');
       expect(r).not.toHaveProperty('buildicsApiKey');
+    });
+
+    it('includes pollingIntervalMs when numeric', () => {
+      const r = buildAdminOrgSettingsResponse('oid', { pollingIntervalMs: 900000 });
+      expect(r.pollingIntervalMs).toBe(900000);
+    });
+
+    it('pollingIntervalMs null when unset', () => {
+      const r = buildAdminOrgSettingsResponse('oid', {});
+      expect(r.pollingIntervalMs).toBeNull();
     });
   });
 });

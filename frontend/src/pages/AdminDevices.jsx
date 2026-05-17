@@ -296,16 +296,6 @@ export default function AdminDevices() {
           BUILDICS の<strong>デバイス ID</strong>を、監視画面に表示する<strong>場所（監視地点）</strong>へ紐付けます。紐付けがないと、台帳に載っていても地点別の一覧に出ません。
         </>
       }
-      headerActions={
-        <>
-          <Link to="/admin" className="btn-admin-toolbar-ghost">
-            メニュー
-          </Link>
-          <Link to="/admin/facilities" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
-            場所
-          </Link>
-        </>
-      }
     >
       <div className="surface-card p-5 mb-5 text-sm text-slate-700">
         <p className="admin-card-section-title mb-2">使い方</p>
@@ -841,6 +831,25 @@ export default function AdminDevices() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-4 border-t border-sky-100/90 dark:border-sky-900/60 bg-gradient-to-r from-emerald-50/90 via-white to-slate-50/80 dark:from-emerald-950/30 dark:via-slate-900/85 dark:to-slate-950/90">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-50">監視地点（手順 1）</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              紐付け先の<strong className="font-semibold text-slate-800 dark:text-slate-200">場所 ID</strong>
+              が足りない、または新しい地点を増やしたいときは、先に<strong className="font-semibold text-slate-800 dark:text-slate-200">場所を登録</strong>
+              してください。登録済みの番号のみ、上の一覧で選べます。
+            </p>
+          </div>
+          <Link
+            to="/admin/facilities"
+            className="btn-primary-solid inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold shadow-md shrink-0 w-full sm:w-auto text-center"
+          >
+            <span aria-hidden className="text-base leading-none">
+              →
+            </span>
+            場所を登録
+          </Link>
         </div>
       </div>
       <DeviceIdQrScannerModal

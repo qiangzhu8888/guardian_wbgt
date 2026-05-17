@@ -17,6 +17,7 @@ test.describe('監視デモ（静的フォールバック）', () => {
     await demoCard.click();
     await expect(page.getByText('WBGT 暑さ指数（デモ）')).toBeVisible();
     await expect(page.getByRole('button', { name: '← 戻る' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: /時間別履歴/ })).toBeVisible();
+    // 詳細の時間別ブロック（文言はモック／実データで異なるため test id で安定）
+    await expect(page.getByTestId('detail-hourly-heading')).toBeVisible();
   });
 });

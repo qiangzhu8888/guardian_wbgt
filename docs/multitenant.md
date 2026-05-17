@@ -12,6 +12,7 @@
     - `dashboardTitle` / `dashboardSubtitle` → 応答の `title` / `subtitle`
     - `themePrimary`（`#RRGGBB`）→ `themePrimary`
     - `logoUrl`（HTTPS・BFF の許可ホストのみ）→ `logoUrl`。ファイルアップロード時は `**firebaseStorageDownloadTokens` 付き**の `firebasestorage.googleapis.com` URL になります（従来の `storage.googleapis.com` 直リンクも可）。
+    - `pollingIntervalMs`（整数ミリ秒・任意）→ 公開応答の `polling.intervalMs` のみ上書き（`historyHours` など他キーは既定のまま）。未設定／削除時は `functions/defaults/publicConfig.json` や Hosting の静的フォールバックの値が使われます。**最短 60 秒・最長 24 時間**。`/admin/org-settings` からプリセットまたはカスタム分で変更できます。
   - **BUILDICS**（任意・**公開 API には出さない**）
     - `buildicsApiKey` … その org の `POST /api/buildics` で使用。**未設定時は** Functions の環境変数 `BUILDICS_API_KEY` にフォールバック
 
@@ -31,7 +32,7 @@
 
 - `GET /api/admin/org-settings` … 上記フィールドの編集用の値（`buildicsApiKey` はフルでは返さず、`buildicsApiKeyConfigured` など）
 - `POST /api/admin/org-logo` … ロゴ画像（PNG / JPEG / WebP / SVG、最大 2MB）を **Bearer 認証付きで生ボディ** 送信。Storage に保存し `orgs.logoUrl` を更新
-- `PATCH /api/admin/org-settings` … ダッシュボード表示・`logoUrl` 手動上書き（HTTPS 許可 URL のみ）・ロゴ削除（`logoUrl` に空文字）・組織専用 BUILDICS キー（キーに空文字を送ると組織キー削除＝環境変数フォールバック）。ロゴを置き換え・削除した際、当アプリがアップロードした Storage オブジェクトは可能な範囲で削除します。
+- `PATCH /api/admin/org-settings` … ダッシュボード表示・`logoUrl` 手動上書き（HTTPS 許可 URL のみ）・ロゴ削除（`logoUrl` に空文字）・**自動更新間隔**（`pollingIntervalMs`、空文字で組織上書き解除）・組織専用 BUILDICS キー（キーに空文字を送ると組織キー削除＝環境変数フォールバック）。ロゴを置き換え・削除した際、当アプリがアップロードした Storage オブジェクトは可能な範囲で削除します。
 
 `slug` の変更はマルチテナントの一意制約のため、当面 Firestore コンソールまたは別運用で行ってください。
 

@@ -4,6 +4,13 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      backgroundImage: {
+        /** マーケ LP 用・控えめなドット格子（Neutral / Stitch 系のトーン参照） */
+        'landing-dot':
+          'radial-gradient(circle at 1px 1px, rgb(148 163 184 / 0.22) 1px, transparent 0)',
+        'landing-dot-dark':
+          'radial-gradient(circle at 1px 1px, rgb(148 163 184 / 0.12) 1px, transparent 0)',
+      },
       fontFamily: {
         sans: [
           '"Noto Sans JP"',

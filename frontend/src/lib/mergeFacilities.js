@@ -1,4 +1,5 @@
 import { LEVEL_ORDER } from '../monitoring/levelStyles';
+import { buildDemoJwaMeshPreview } from './demoWbgtSeries';
 
 /**
  * @param {object} sensorData from useBuildicsData
@@ -8,7 +9,12 @@ import { LEVEL_ORDER } from '../monitoring/levelStyles';
 export function mergeFacilities(sensorData, mockFacilities, deviceMappings) {
   const merged = (mockFacilities || []).map((f) => {
     const live = sensorData[f.id];
-    if (!live || live.status === 'no_data' || live.status === 'parse_error') return { ...f };
+    if (!live || live.status === 'no_data' || live.status === 'parse_error') {
+      const wbgt = Number(f?.wbgt);
+      const isCommBad = f?.level === '通信異常' || !Number.isFinite(wbgt) || wbgt <= 0;
+      const mockJwaPreview = isCommBad ? null : buildDemoJwaMeshPreview({ currentWbgt: wbgt, seed: Number(f.id) || 1 });
+      return { ...f, ...(mockJwaPreview ? { mockJwaPreview } : {}) };
+    }
     if (live.status === 'stale') {
       return { ...f, level: '通信異常', isMock: false, isLive: true };
     }

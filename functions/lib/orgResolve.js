@@ -60,6 +60,12 @@ async function resolvePublicOrg(db, orgSlugQuery) {
     return { orgId: defaultOrgId(), orgSlug: slug };
   }
 
+  // 公開 URL /tenant/default は定番の入口。DEFAULT_ORG_SLUG を別名にしていても、
+  // Firestore に slug "default" の組織が無い場合は既定 orgId に解決する。
+  if (slug === 'default') {
+    return { orgId: defaultOrgId(), orgSlug: 'default' };
+  }
+
   const err = new Error('unknown org');
   err.httpStatus = 404;
   throw err;

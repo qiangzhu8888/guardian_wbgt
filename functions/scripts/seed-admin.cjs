@@ -10,15 +10,9 @@
 const fs = require('fs');
 const path = require('path');
 
-try {
-  /** override: true … シェルに空・誤値の AUTH_BOOTSTRAP_SECRET が残っていても .env を優先 */
-  require('dotenv').config({
-    path: path.join(__dirname, '..', '.env'),
-    override: true,
-  });
-} catch {
-  /* dotenv 未導入時は環境変数のみ */
-}
+const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
+/** functions/.env → ルート/.env → functions/.env.local（後者で上書き。JWA 等は .env.local 推奨） */
+loadFunctionsDotEnv();
 
 const { normalizeAuthBootstrapSecret } = require('../lib/bootstrapSecretNormalize');
 
@@ -276,12 +270,24 @@ async function main() {
 main().catch((e) => {
   const msg = e && e.message ? String(e.message) : String(e);
   console.error(msg.startsWith('[seed-admin]') ? msg : `[seed-admin] ${msg}`);
+  if (e && e.cause) {
+    console.error('[seed-admin] cause:', e.cause);
+  }
+  if (e && e.name === 'AggregateError' && Array.isArray(e.errors)) {
+    e.errors.forEach((err, i) => {
+      console.error(`[seed-admin] nested[${i}]:`, err && (err.message || err));
+    });
+  }
   const rawHint =
     normalizeEmulatorBaseFromEnv(process.env.FUNCTIONS_EMULATOR_URL) ||
     `http://127.0.0.1:${readFunctionsEmulatorPort()}`;
   console.error(
     '接続先の確認:',
     rewriteLocalEmuFunctionsTriplePath(expandEmulatorHostPortOnlyBase(rawHint)),
+  );
+  console.error(
+    '[seed-admin] fetch failed は多くの場合「エミュ未起動」または「ポート不一致」です。' +
+      ' firebase emulators が起動しているか、firebase.json の emulators.functions.port と FUNCTIONS_EMULATOR_URL のポートを揃えてください。',
   );
   process.exit(1);
 });

@@ -191,6 +191,15 @@ export function IconArrowDown({ className }) {
   );
 }
 
+export function IconArrowRight({ className }) {
+  return (
+    <BaseIcon className={className}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </BaseIcon>
+  );
+}
+
 export function IconSparkles({ className }) {
   return (
     <BaseIcon className={className}>

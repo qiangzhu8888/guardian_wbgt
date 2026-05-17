@@ -57,7 +57,7 @@ function makeFacility(overrides = {}) {
 describe('DetailView', () => {
   it('labels live WBGT as sensor-derived and shows sensor realtime wording', () => {
     const html = renderToStaticMarkup(
-      <DetailView facility={makeFacility()} onBack={() => {}} orgSlug={null} />
+      <DetailView facility={makeFacility()} onBack={() => {}} />
     );
     expect(html).toContain('WBGT 暑さ指数（現場センサー推定）');
     expect(html).toContain('現場センサーのリアルタイムデータ');
@@ -65,15 +65,24 @@ describe('DetailView', () => {
 
   it('labels mock demo WBGT row', () => {
     const html = renderToStaticMarkup(
-      <DetailView facility={makeFacility({ isMock: true })} onBack={() => {}} orgSlug={null} />
+      <DetailView facility={makeFacility({ isMock: true })} onBack={() => {}} />
     );
     expect(html).toContain('WBGT 暑さ指数（デモ）');
     expect(html).not.toContain('現場センサーのリアルタイムデータ');
   });
 
+  it('shows synthetic WBGT trend for mock facility (chart + table headline)', () => {
+    const html = renderToStaticMarkup(
+      <DetailView facility={makeFacility({ isMock: true, wbgt: 26 })} onBack={() => {}} />
+    );
+    expect(html).toContain('data-testid="detail-hourly-heading"');
+    expect(html).toContain('時間別（デモ・擬似データ・直近6時間）');
+    expect(html).toContain('data-testid="recharts-linechart"');
+  });
+
   it('renders installation photo below header with enlarged max-height class', () => {
     const html = renderToStaticMarkup(
-      <DetailView facility={makeFacility()} onBack={() => {}} orgSlug={null} />
+      <DetailView facility={makeFacility()} onBack={() => {}} />
     );
     const photoIdx = html.indexOf('https://example.com/photo.jpg');
     expect(photoIdx).toBeGreaterThan(-1);
@@ -82,7 +91,7 @@ describe('DetailView', () => {
 
   it('places mocked JWA block after hourly history headline (past chart section)', () => {
     const html = renderToStaticMarkup(
-      <DetailView facility={makeFacility()} onBack={() => {}} orgSlug={null} />
+      <DetailView facility={makeFacility()} onBack={() => {}} />
     );
     expect(html.includes('時間別履歴')).toBe(true);
     expect(html.includes('付近の WBGT 予測')).toBe(true);

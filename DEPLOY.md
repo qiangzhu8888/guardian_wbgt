@@ -47,6 +47,11 @@ cd functions && npm run secrets:set-bootstrap
 
 - [Cloud Run](https://console.cloud.google.com/run) → `api`（`asia-northeast1`）→ 編集 → **シークレット** から当該エントリを削除、**変数** に平文で `AUTH_BOOTSTRAP_SECRET` を 1 つだけ置く。
 
+**逆の場合（本リポジトリの現仕様・JWA キー）:** `AUTH_BOOTSTRAP_SECRET` は平文 env、`JWA_X_API_KEY` / `JWA_APIKEY` は **Secret のみ**（`functions/index.js` の `defineSecret`）。Console に **`JWA_*` が無い**場合でも、`firebase deploy` を実行している **PC の `functions/.env` または `functions/.env.<プロジェクトID>`** が CLI に読まれ、**平文として Cloud Run にマージされている**ことがあります（表示と一覧がずれる）。デプロイログに `Loaded environment variables from ...` と出ているか確認してください。
+
+- **対処:** `functions/.env` / `functions/.env.wbgt-monitor-d5556` などから **`JWA_X_API_KEY` と `JWA_APIKEY` の行を削除**する（ローカル用は **`functions/.env.local`** にだけ書く。`lib/loadLocalEnv.js` とエミュでは `.env.local` を読み込み、[公式の Emulator 説明どおり `.env.local` は本番デプロイ用の環境ファイルマージの対象外](https://firebase.google.com/docs/functions/config-env?gen=2nd#emulator_support)）。
+- Secret の値は **`firebase functions:secrets:set JWA_X_API_KEY`** と **`firebase functions:secrets:set JWA_APIKEY`** で管理してください（`.env.example` のコメント参照）。
+
 **エミュレータ**では `FUNCTIONS_EMULATOR=true` 時、JWT にローカル用フォールバックがある。本番では必ず上記シークレットを設定すること。
 
 ## 初回プラットフォーム管理者（superadmin）の作成（1 回のみ）
@@ -177,6 +182,22 @@ cd functions && npm run seed:test-data
    **PowerShell** では `--only` のカンマ区切りが引数に割れて `No emulators to start` になることがあるため、**必ず引用符で囲んでください**。初回管理者は `cd functions && npm run seed:admin`（上記 `functions/.env` の `SEED_`* 設定後）で登録できます。
 2. `frontend` で `npm run dev` — `vite.config.js` の `/api` プロキシが `http://127.0.0.1:65001/wbgt-monitor-d5556/asia-northeast1/api` に転送されます（`.firebaserc` の `default` プロジェクト ID と一致している必要があります。`firebase.json` の `emulators.functions.port` を変えたらこの `target` も同じポートにしてください）。
 3. BUILDICS を直接叩く場合は従来どおり `VITE_BUILDICS_API_KEY` と `/buildics-api` プロキシ
+
+### Windows: `npm ci` が EPERM / EBUSY になるとき
+
+`frontend` / `functions` の `node_modules` を更新する際、別プロセスがファイルを掴んでいると **`EBUSY`（リソース使用中）** や **`EPERM`** で失敗することがあります。
+
+- **対処**: ほかのターミナルの `npm run dev`・エミュレータ・テストを止めてから再実行する。
+- **デプロイスクリプト**: `scripts/deploy-production.ps1` は Windows でファイルロック検知時に `node_modules` 削除と複数回リトライを試します。必要なら `-FreshFunctions` / `-FreshFrontend`、または `-UseInstall` を付けてください（詳細は実行時に表示される `npm-win-hardening.ps1` のヒント参照）。
+- OneDrive やリアルタイムウイルス対策がリポジトリ直下を強くロックしている場合は、例外設定や別フォルダでのクローンも検討してください。
+
+### 製品 LP のダッシュボードキャプチャ画像
+
+**正本はリポジトリ直下の `images/dashboard.png`** とします。`frontend` の **`npm run build`** の `prebuild` で `npm run sync:dashboard-image` が走り、`frontend/public/images/dashboard.png` にコピーされます（ソース PNG が無い場合はスキップされ、既存の `public` ファイルがそのまま使われます）。
+
+### 受け入れテスト（Playwright）と `/api` プロキシ
+
+`tests` で `npm run test:functional` を実行するとき、**Functions エミュレータが未起動**だと Vite が `/api` へプロキシできず **`ECONNREFUSED`** がログに出ることがあります。公開監視のシナリオでは `/api/public/config` 失敗後に **`/config/facilities.json`** にフォールバックするため、テスト自体は成功することがあります。プロキシログを抑えたい場合は **`firebase emulators:start --only functions`**（ポートを `vite.config.js` の `target` と揃える）を別ターミナルで起動してください。
 
 ## フッターバージョン
 

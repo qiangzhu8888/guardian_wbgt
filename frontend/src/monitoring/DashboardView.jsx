@@ -10,7 +10,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import MobileMonitorQrBlock from '../components/MobileMonitorQrBlock';
 import {
   buildJwaChartRowsWithPastFutureSplit,
   buildJwaDashboardPreviewSeries,
@@ -137,7 +136,6 @@ export function DashboardView({
   lastFetched,
   anomalySensor,
   onSelectFacility,
-  orgSlug,
 }) {
   const topFacility = facilities.find((f) => f.level !== '通信異常' && f.level !== 'ほぼ安全');
 
@@ -265,8 +263,6 @@ export function DashboardView({
         ))}
       </div>
 
-      <MobileMonitorQrBlock orgSlug={orgSlug} variant="monitor" />
-
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-xl border border-sky-200/90 bg-sky-50/90 px-4 py-3 dark:border-sky-800/55 dark:bg-sky-950/35">
         <p className="text-sm text-slate-700 dark:text-slate-200 leading-snug">
           製品情報・ソリューション概要は製品ページをご覧ください。
@@ -342,55 +338,81 @@ export function DashboardView({
                 </p>
               </div>
 
-              {Number.isFinite(Number(f.lat)) && Number.isFinite(Number(f.lng)) && jwaMeshStatus !== 'unconfigured' ? (
-                <div className="mb-3 rounded-lg border border-sky-100/90 dark:border-sky-900/45 bg-sky-50/55 dark:bg-sky-950/22 px-2.5 py-2">
-                  <p className="text-[10px] font-semibold text-sky-900/90 dark:text-sky-200/95">
-                    地点付近・WBGT 予測（日本気象協会・1km・参考）
-                  </p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-0.5 leading-snug">
-                    登録した緯度・経度を基準としたメッシュ予測です。センサー実測値とは異なる場合があります。
-                  </p>
-                  {jwaMeshStatus === 'loading' ? (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">取得中…</p>
-                  ) : jwaMeshStatus === 'error' ? (
-                    <p className="text-[11px] text-sky-900/80 dark:text-sky-300/90 mt-1">取得に失敗しました</p>
-                  ) : (
-                    (() => {
-                      const row = jwaMeshById[String(f.id)];
-                      if (!row || row.ok === false) {
-                        return (
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                            {row && typeof row.msg === 'string' ? row.msg : '—'}
-                          </p>
-                        );
-                      }
-                      const prev = Array.isArray(row.preview) ? row.preview : [];
-                      if (prev.length === 0) {
-                        return <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">予測がありません</p>;
-                      }
-                      const seriesPts = buildJwaDashboardPreviewSeries(prev);
-                      return (
-                        <div className="mt-1">
-                          {row.meshCode ? (
-                            <p className="text-[10px] text-slate-500 dark:text-slate-500 tabular-nums">
-                              メッシュ {row.meshCode}
-                            </p>
-                          ) : null}
-                          {seriesPts.length === 0 ? (
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                              グラフ表示に使える時系列がありません
-                            </p>
-                          ) : (
-                            <>
-                              <JwaHourlyPreviewChart preview={prev} />
-                            </>
-                          )}
-                        </div>
-                      );
-                    })()
-                  )}
-                </div>
-              ) : null}
+              {(() => {
+                const geo =
+                  Number.isFinite(Number(f.lat)) &&
+                  Number.isFinite(Number(f.lng)) &&
+                  jwaMeshStatus !== 'unconfigured';
+                const mockPv =
+                  f.isMock && Array.isArray(f.mockJwaPreview) && f.mockJwaPreview.length > 0;
+                if (geo) {
+                  return (
+                    <div className="mb-3 rounded-lg border border-sky-100/90 dark:border-sky-900/45 bg-sky-50/55 dark:bg-sky-950/22 px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-sky-900/90 dark:text-sky-200/95">
+                        地点付近・WBGT 予測（日本気象協会・1km・参考）
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-0.5 leading-snug">
+                        登録した緯度・経度を基準としたメッシュ予測です。センサー実測値とは異なる場合があります。
+                      </p>
+                      {jwaMeshStatus === 'loading' ? (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">取得中…</p>
+                      ) : jwaMeshStatus === 'error' ? (
+                        <p className="text-[11px] text-sky-900/80 dark:text-sky-300/90 mt-1">取得に失敗しました</p>
+                      ) : (
+                        (() => {
+                          const row = jwaMeshById[String(f.id)];
+                          if (!row || row.ok === false) {
+                            return (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                {row && typeof row.msg === 'string' ? row.msg : '—'}
+                              </p>
+                            );
+                          }
+                          const prev = Array.isArray(row.preview) ? row.preview : [];
+                          if (prev.length === 0) {
+                            return <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">予測がありません</p>;
+                          }
+                          const seriesPts = buildJwaDashboardPreviewSeries(prev);
+                          return (
+                            <div className="mt-1">
+                              {row.meshCode ? (
+                                <p className="text-[10px] text-slate-500 dark:text-slate-500 tabular-nums">
+                                  メッシュ {row.meshCode}
+                                </p>
+                              ) : null}
+                              {seriesPts.length === 0 ? (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                  グラフ表示に使える時系列がありません
+                                </p>
+                              ) : (
+                                <>
+                                  <JwaHourlyPreviewChart preview={prev} />
+                                </>
+                              )}
+                            </div>
+                          );
+                        })()
+                      )}
+                    </div>
+                  );
+                }
+                if (mockPv) {
+                  return (
+                    <div className="mb-3 rounded-lg border border-violet-100/90 dark:border-violet-900/40 bg-violet-50/50 dark:bg-violet-950/25 px-2.5 py-2">
+                      <p className="text-[10px] font-semibold text-violet-900/95 dark:text-violet-200/95">
+                        デモ・WBGT 推移（参考・擬似）
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-0.5 leading-snug">
+                        現在地のメッシュ予測ではなく、デモ施設の現在値に沿ったサンプル時系列です。
+                      </p>
+                      <div className="mt-1">
+                        <JwaHourlyPreviewChart preview={f.mockJwaPreview} />
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-700">
                 <span className="text-xs text-gray-400 dark:text-slate-500">最終更新 {f.updated}</span>

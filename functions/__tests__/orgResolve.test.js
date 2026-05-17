@@ -57,6 +57,22 @@ describe('orgResolve', () => {
     }
   });
 
+  it('resolvePublicOrg maps slug default to default org when DEFAULT_ORG_SLUG differs', async () => {
+    const prevId = process.env.DEFAULT_ORG_ID;
+    const prevSlug = process.env.DEFAULT_ORG_SLUG;
+    process.env.DEFAULT_ORG_ID = 'org-root';
+    process.env.DEFAULT_ORG_SLUG = 'acme-corp';
+    try {
+      const r = await resolvePublicOrg(dbEmptyOrgs, 'default');
+      expect(r).toEqual({ orgId: 'org-root', orgSlug: 'default' });
+    } finally {
+      if (prevId === undefined) delete process.env.DEFAULT_ORG_ID;
+      else process.env.DEFAULT_ORG_ID = prevId;
+      if (prevSlug === undefined) delete process.env.DEFAULT_ORG_SLUG;
+      else process.env.DEFAULT_ORG_SLUG = prevSlug;
+    }
+  });
+
   it('resolvePublicOrg 404 for unknown slug when not default', async () => {
     const prevSlug = process.env.DEFAULT_ORG_SLUG;
     process.env.DEFAULT_ORG_SLUG = 'default';

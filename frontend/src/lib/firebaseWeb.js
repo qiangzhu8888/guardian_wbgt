@@ -30,16 +30,22 @@ export function buildFirebaseWebConfig(env) {
   };
 }
 
+export function ensureFirebaseWebApp(env) {
+  const cfg = buildFirebaseWebConfig(env);
+  if (!cfg || typeof window === 'undefined') return null;
+  return getApps().length ? getApps()[0] : initializeApp(cfg);
+}
+
 /**
  * ブラウザで Firebase を初期化し、measurementId があるときだけ Analytics を有効化する。
  * 環境変数未設定なら何もしない。
  */
 export async function initFirebaseWeb() {
   if (typeof window === 'undefined') return;
+  const app = ensureFirebaseWebApp(import.meta.env);
+  if (!app) return;
   const cfg = buildFirebaseWebConfig(import.meta.env);
-  if (!cfg) return;
-  const app = getApps().length ? getApps()[0] : initializeApp(cfg);
-  if (cfg.measurementId && (await isSupported())) {
+  if (cfg?.measurementId && (await isSupported())) {
     getAnalytics(app);
   }
 }

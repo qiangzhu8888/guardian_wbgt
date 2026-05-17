@@ -15,6 +15,7 @@ describe('mergeFacilities', () => {
     const out = mergeFacilities({}, mock, maps);
     expect(out).toHaveLength(2);
     expect(out.every((f) => f.isMock)).toBe(true);
+    expect(out.some((f) => Array.isArray(f.mockJwaPreview) && f.mockJwaPreview.length > 0)).toBe(true);
   });
 
   it('merges live over mock and sorts live before mock', () => {

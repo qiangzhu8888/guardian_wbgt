@@ -29,13 +29,13 @@
   Delete frontend/node_modules before npm ci/install (helps Windows EPERM on native addons).
 
 .PARAMETER NoFrontendEpermRecover
-  Windows only: by default frontend npm deletes node_modules once on EPERM and retries. Omit that with this switch.
+  Windows only: by default frontend npm retries after EPERM/EBUSY (remove node_modules, sleep, then npm install on last try if npm ci was used). Omit with this switch.
 
 .PARAMETER FreshFunctions
   Delete functions/node_modules before npm ci/install when deploying functions.
 
 .PARAMETER NoFunctionsEpermRecover
-  Windows only: by default functions npm deletes node_modules once on EPERM and retries. Omit that with this switch.
+  Windows only: by default functions npm retries after EPERM/EBUSY (same strategy as frontend deps). Omit with this switch.
 
 .NOTES
   Not Hosting emulator workflow. firebase login required.

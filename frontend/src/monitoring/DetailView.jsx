@@ -10,12 +10,12 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { getWBGTLevel } from '../lib/wbgt';
+import { buildDemoWbgtTrendForDetail } from '../lib/demoWbgtSeries';
 import { getLevelStyle, getWbgtColor } from './levelStyles';
 import { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
 import { WbgtGuidelinesPanel } from './WbgtGuidelinesPanel.jsx';
 import { JwaWbgtReferencePanel } from './JwaWbgtReferencePanel.jsx';
 import { JmaHeatAdvisoryPanel } from './JmaHeatAdvisoryPanel.jsx';
-import MobileMonitorQrBlock from '../components/MobileMonitorQrBlock';
 import { useDarkClass } from '../hooks/useDarkClass';
 
 export function DetailView({
@@ -24,7 +24,6 @@ export function DetailView({
   hourlyForecastDemo = [],
   weatherForecastDemo = [],
   showDemoForecast = false,
-  orgSlug,
 }) {
   const [timeRange, setTimeRange] = useState(6);
   const style = getLevelStyle(facility.level);
@@ -44,13 +43,20 @@ export function DetailView({
           humidity: p.humidity,
         }));
     }
-    if (showDemoForecast && hourlyForecastDemo.length > 0) {
-      return hourlyForecastDemo.map((h) => ({
-        label: h.time,
-        wbgt: h.wbgt,
-        temp: null,
-        humidity: null,
-      }));
+    if (facility.isMock) {
+      if (showDemoForecast && hourlyForecastDemo.length > 0) {
+        return hourlyForecastDemo.map((h) => ({
+          label: h.time,
+          wbgt: h.wbgt,
+          temp: null,
+          humidity: null,
+        }));
+      }
+      return buildDemoWbgtTrendForDetail({
+        currentWbgt: Number(facility.wbgt),
+        seed: Number(facility.id),
+        hours: timeRange,
+      });
     }
     return [];
   }, [facility, timeRange, showDemoForecast, hourlyForecastDemo]);
@@ -90,7 +96,7 @@ export function DetailView({
   };
 
   const tableRows = useMemo(() => {
-    if (facility.isMock && showDemoForecast) {
+    if (facility.isMock && showDemoForecast && hourlyForecastDemo.length > 0) {
       return hourlyForecastDemo.map((r) => ({
         label: r.time,
         wbgt: r.wbgt,
@@ -215,7 +221,8 @@ export function DetailView({
             {!facility.isMock && <LiveBadge />}
             {facility.isMock && <MockBadge />}
           </h3>
-          {!facility.isMock && (
+          {(!facility.isMock ||
+            (facility.isMock && !(showDemoForecast && hourlyForecastDemo.length > 0))) && (
             <div className="flex gap-1">
               {[1, 3, 6].map((h) => (
                 <button
@@ -291,10 +298,10 @@ export function DetailView({
                 strokeWidth={3}
                 name="WBGT"
                 dot={(props) => {
-                  const { cx, cy, payload } = props;
+                  const { cx, cy, payload, index } = props;
                   return (
                     <circle
-                      key={`dot-${payload.label}`}
+                      key={`dot-${index}-${payload?.label ?? ''}`}
                       cx={cx}
                       cy={cy}
                       r={4}
@@ -326,12 +333,17 @@ export function DetailView({
 
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-600 shadow-soft overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
-          <h3 className="font-bold text-gray-700 dark:text-slate-200 text-sm">
+          <h3
+            className="font-bold text-gray-700 dark:text-slate-200 text-sm"
+            data-testid="detail-hourly-heading"
+          >
             {facility.isMock && showDemoForecast
               ? '時間別予測（デモデータ）'
-              : `時間別履歴（直近${timeRange}時間）`}
+              : facility.isMock
+                ? `時間別（デモ・擬似データ・直近${timeRange}時間）`
+                : `時間別履歴（直近${timeRange}時間）`}
           </h3>
-          {!facility.isMock && <span className="text-xs text-gray-400 dark:text-slate-500">{chartData.length}件</span>}
+          <span className="text-xs text-gray-400 dark:text-slate-500">{chartData.length}件</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -423,8 +435,6 @@ export function DetailView({
           </div>
         </div>
       )}
-
-      <MobileMonitorQrBlock orgSlug={orgSlug} variant="monitor" compact />
 
     </div>
   );

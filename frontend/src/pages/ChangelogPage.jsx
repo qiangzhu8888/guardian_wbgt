@@ -10,9 +10,7 @@ export default function ChangelogPage() {
       title="更新履歴"
       description={
         <>
-          リリースバンドルの版情報はヘッダー・フッターの <strong className="tabular-nums">v{version || '—'}</strong>{' '}
-          と一致します。リポジトリ直下の <code className="text-xs bg-slate-200/80 dark:bg-slate-800 px-1 rounded">VERSION</code>{' '}
-          を更新したら、先頭の項目の版番号も合わせてください。
+          主な機能追加・文言や画面の調整ごとのお知らせです。<strong className="tabular-nums">最新の版は v{version || '—'}</strong>（画面上部の製品ヘッダーに表示されます）。新しい順に並んでいます。
         </>
       }
     >
