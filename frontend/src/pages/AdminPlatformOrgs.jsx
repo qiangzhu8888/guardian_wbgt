@@ -367,11 +367,6 @@ export default function AdminPlatformOrgs() {
           ドキュメントを作成し、続けてその組織の管理者ユーザーを登録・一覧管理できます。
         </>
       }
-      headerActions={
-        <Link to="/admin" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
-          メニュー
-        </Link>
-      }
     >
       {err && (
         <p className="text-sm text-red-800 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4" role="alert">

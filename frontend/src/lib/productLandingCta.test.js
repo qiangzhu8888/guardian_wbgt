@@ -8,6 +8,8 @@ import {
   TERMS_PATH,
   PRIVACY_PATH,
   SLIDES_PATH,
+  SPECS_PATH,
+  NOTIFICATIONS_PATH,
 } from './productLandingCta';
 import { monitorHomePath } from './orgRoute';
 
@@ -31,9 +33,11 @@ describe('productLandingCta', () => {
       productPath,
       changelogPath,
       manualPath,
+      notificationsPath,
       termsPath,
       privacyPath,
       slidesPath,
+      specsPath,
     } = productLandingCtaPaths();
     expect(adminLoginPath).toBe(ADMIN_LOGIN_PATH);
     expect(adminLoginPath).toBe('/admin/login');
@@ -43,11 +47,15 @@ describe('productLandingCta', () => {
     expect(changelogPath).toBe('/changelog');
     expect(manualPath).toBe(MANUAL_PATH);
     expect(manualPath).toBe('/manual');
+    expect(notificationsPath).toBe(NOTIFICATIONS_PATH);
+    expect(notificationsPath).toBe('/notifications');
     expect(termsPath).toBe(TERMS_PATH);
     expect(termsPath).toBe('/terms');
     expect(privacyPath).toBe(PRIVACY_PATH);
     expect(privacyPath).toBe('/privacy');
     expect(slidesPath).toBe(SLIDES_PATH);
     expect(slidesPath).toBe('/slides');
+    expect(specsPath).toBe(SPECS_PATH);
+    expect(specsPath).toBe('/specs');
   });
 });

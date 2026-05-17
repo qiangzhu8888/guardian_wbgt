@@ -11,4 +11,12 @@ describe('MobileMonitorQrBlock', () => {
     expect(html).toContain('/tenant/school-a');
     expect(html.toLowerCase()).toContain('<svg');
   });
+
+  it('layout=header でも QR がテナントパスを指す', () => {
+    const html = renderToStaticMarkup(
+      <MobileMonitorQrBlock orgSlug="school-a" variant="monitor" layout="header" compact />,
+    );
+    expect(html).toContain('/tenant/school-a');
+    expect(html).toContain('スマホで開く');
+  });
 });

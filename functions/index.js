@@ -42,3 +42,19 @@ if (!isFunctionsEmulator) {
 }
 
 exports.api = onRequest(apiOpts, (req, res) => getApp()(req, res));
+
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+exports.scheduledHeatAlerts = onSchedule(
+  {
+    schedule: 'every 15 minutes',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-northeast1',
+    memory: '512MiB',
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const { runHeatAlertsOnce } = require('./lib/heatAlertRunner');
+    const result = await runHeatAlertsOnce();
+    console.log('scheduledHeatAlerts', result);
+  },
+);

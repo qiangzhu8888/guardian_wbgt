@@ -8,6 +8,7 @@ import {
   TERMS_PATH,
   PRIVACY_PATH,
   SLIDES_PATH,
+  SPECS_PATH,
 } from '../lib/productLandingCta';
 
 const changelogPath = '/changelog';
@@ -66,6 +67,9 @@ export default function PublicDocsLayout({ title, description, children }) {
             <Link to={SLIDES_PATH} className="btn-ghost-header">
               スライド
             </Link>
+            <Link to={SPECS_PATH} className="btn-ghost-header">
+              温湿度センサー仕様
+            </Link>
             <Link to={TERMS_PATH} className="btn-ghost-header">
               利用規約
             </Link>
@@ -116,6 +120,9 @@ export default function PublicDocsLayout({ title, description, children }) {
             </Link>
             <Link to={SLIDES_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
               スライド紹介
+            </Link>
+            <Link to={SPECS_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
+              温湿度センサー仕様
             </Link>
             <Link to={TERMS_PATH} className="font-medium text-sky-700 dark:text-sky-400 hover:underline underline-offset-4">
               利用規約

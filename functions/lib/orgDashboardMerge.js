@@ -5,6 +5,10 @@ const MAX_SUBTITLE = 200;
 const MAX_LOGO_URL = 500;
 const MAX_BUILDICS_KEY = 500;
 
+/** 監視ダッシュボードの BUILDICS ポーリング間隔（公開設定で上書き可） */
+const MIN_POLLING_INTERVAL_MS = 60_000;
+const MAX_POLLING_INTERVAL_MS = 86_400_000;
+
 /** @type {Set<string>} */
 const BUILTIN_LOGO_HOSTS = new Set([
   'storage.googleapis.com',
@@ -69,8 +73,35 @@ function parseThemePrimary(raw) {
 
 /**
  * @param {unknown} raw
- * @returns {string | null}
+ * @returns {number | null} null = org で未設定（公開設定の polling をそのまま）
  */
+function parseStoredPollingIntervalMs(raw) {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return null;
+  if (n < MIN_POLLING_INTERVAL_MS || n > MAX_POLLING_INTERVAL_MS) return null;
+  return Math.round(n);
+}
+
+/**
+ * PATCH 用（不正値はエラー、空は削除）
+ * @param {unknown} val
+ * @returns {{ ok: true, value: '' } | { ok: true, value: number } | { ok: false, msg: string }}
+ */
+function validatePollingIntervalMsPatch(val) {
+  if (val == null || val === '') return { ok: true, value: '' };
+  const n = typeof val === 'number' ? val : Number(val);
+  if (!Number.isFinite(n)) return { ok: false, msg: '自動更新間隔が不正です' };
+  const rounded = Math.round(n);
+  if (rounded < MIN_POLLING_INTERVAL_MS) {
+    return { ok: false, msg: `自動更新間隔は最短 ${MIN_POLLING_INTERVAL_MS / 60000} 分です` };
+  }
+  if (rounded > MAX_POLLING_INTERVAL_MS) {
+    return { ok: false, msg: `自動更新間隔は最長 ${MAX_POLLING_INTERVAL_MS / 3600000} 時間です` };
+  }
+  return { ok: true, value: rounded };
+}
+
 function parseLogoUrl(raw) {
   if (raw == null || raw === '') return null;
   const s = String(raw).trim().slice(0, MAX_LOGO_URL);
@@ -102,6 +133,12 @@ function mergeOrgDashboardIntoConfig(baseConfig, orgData) {
   if (theme) out.themePrimary = theme;
   const logo = parseLogoUrl(orgData.logoUrl);
   if (logo) out.logoUrl = logo;
+  const pollingMs = parseStoredPollingIntervalMs(orgData.pollingIntervalMs);
+  if (pollingMs != null) {
+    const basePolling =
+      baseConfig.polling && typeof baseConfig.polling === 'object' ? { ...baseConfig.polling } : {};
+    out.polling = { ...basePolling, intervalMs: pollingMs };
+  }
   return out;
 }
 
@@ -122,6 +159,10 @@ function buildAdminOrgSettingsResponse(orgId, data) {
     dashboardSubtitle: d.dashboardSubtitle != null ? String(d.dashboardSubtitle) : '',
     themePrimary: d.themePrimary != null ? String(d.themePrimary) : '',
     logoUrl: d.logoUrl != null ? String(d.logoUrl) : '',
+    pollingIntervalMs:
+      typeof d.pollingIntervalMs === 'number' && Number.isFinite(d.pollingIntervalMs)
+        ? Math.round(d.pollingIntervalMs)
+        : null,
     buildicsApiKeyConfigured: key.length > 0,
     buildicsApiKeyLast4: key.length >= 4 ? key.slice(-4) : null,
   };
@@ -131,7 +172,7 @@ function buildAdminOrgSettingsResponse(orgId, data) {
  * PATCH のフィールド検証（エラー時は msg）
  * @param {string} field
  * @param {unknown} val
- * @returns {{ ok: true, value: string } | { ok: false, msg: string }}
+ * @returns {{ ok: true, value: string | number | '' } | { ok: false, msg: string }}
  */
 function validateDashboardPatchField(field, val) {
   if (field === 'dashboardTitle') {
@@ -159,6 +200,9 @@ function validateDashboardPatchField(field, val) {
     const u = parseLogoUrl(s);
     if (!u) return { ok: false, msg: 'ロゴ URL が許可されていないか不正です（HTTPS・許可ホストのみ）' };
     return { ok: true, value: u };
+  }
+  if (field === 'pollingIntervalMs') {
+    return validatePollingIntervalMsPatch(val);
   }
   return { ok: false, msg: '不明なフィールドです' };
 }
@@ -204,6 +248,10 @@ module.exports = {
   MAX_SUBTITLE,
   MAX_LOGO_URL,
   MAX_BUILDICS_KEY,
+  MIN_POLLING_INTERVAL_MS,
+  MAX_POLLING_INTERVAL_MS,
+  parseStoredPollingIntervalMs,
+  validatePollingIntervalMsPatch,
   BUILTIN_LOGO_HOSTS,
   isLogoHostnameAllowed,
   mergeOrgDashboardIntoConfig,

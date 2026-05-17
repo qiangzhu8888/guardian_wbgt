@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom';
 import { useBuildicsData } from './hooks/useBuildicsData';
 import { mergeFacilities } from './lib/mergeFacilities';
 import ThemeFullscreenControls from './components/ThemeFullscreenControls';
+import MobileMonitorQrBlock from './components/MobileMonitorQrBlock';
 import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from './lib/appBranding';
 import { PRODUCT_LANDING_PATH } from './lib/productLandingCta';
+import { clampEffectivePollingIntervalMs } from './lib/orgPollingSettings';
 import { DashboardView } from './monitoring/DashboardView';
 import { DetailView } from './monitoring/DetailView';
 
@@ -14,7 +16,7 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
 
   const deviceMappings = config?.deviceMappings || [];
   const polling = config?.polling || {};
-  const intervalMs = polling.intervalMs ?? 60000;
+  const intervalMs = clampEffectivePollingIntervalMs(polling.intervalMs ?? 60000);
 
   const { sensorData, loading, error, lastFetched, refresh } = useBuildicsData(
     deviceMappings,
@@ -52,14 +54,26 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
   const logoUrl = typeof config?.logoUrl === 'string' ? config.logoUrl.trim() : '';
   const headerLogoSrc = logoUrl || DEFAULT_APP_LOGO_URL;
 
-  if (!config || !mockFacilities.length) {
+  if (!config) {
+    return null;
+  }
+
+  if (!mockFacilities.length) {
     return (
       <div className="min-h-screen min-h-[100dvh] flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-slate-100 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4">
-        <div
-          className="h-11 w-11 rounded-full border-2 border-sky-500 border-t-transparent animate-spin"
-          aria-hidden
-        />
-        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">設定を読み込み中…</p>
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 text-center max-w-md leading-relaxed">
+          公開ダッシュボードに表示する施設がありません。API の公開設定・台帳に掲載対象があるか確認してください。
+        </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 text-center max-w-md">
+          静的フォールバックが無効な環境では、ビルドに含まれる <code className="text-[11px]">config/facilities.json</code>{' '}
+          の取得や Cloud Functions の <code className="text-[11px]">/api/public/config</code> の応答を確認してください。
+        </p>
+        <Link
+          to={PRODUCT_LANDING_PATH}
+          className="text-sm font-semibold text-sky-700 dark:text-sky-400 hover:underline underline-offset-4"
+        >
+          製品案内へ
+        </Link>
       </div>
     );
   }
@@ -142,6 +156,11 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
             </div>
           </div>
         </div>
+        <div className="border-t border-white/15 px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3 pb-2">
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-x-4 gap-y-2 justify-between sm:justify-end">
+            <MobileMonitorQrBlock orgSlug={orgSlug} variant="monitor" layout="header" compact className="max-w-full" />
+          </div>
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto w-full px-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] py-4 sm:py-6 flex-1">
@@ -152,7 +171,6 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
             error={error}
             lastFetched={lastFetched}
             anomalySensor={anomalySensor}
-            orgSlug={orgSlug}
             onSelectFacility={(f) => {
               setSelectedFacilityId(f.id);
               setView('detail');
@@ -161,7 +179,6 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
         ) : selectedFacility ? (
           <DetailView
             facility={selectedFacility}
-            orgSlug={orgSlug}
             onBack={() => {
               setView('dashboard');
               setSelectedFacilityId(null);

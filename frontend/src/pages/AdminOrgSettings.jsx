@@ -9,6 +9,11 @@ import {
   pickerHexFromTheme,
   normalizeDashboardHex,
 } from '../lib/dashboardTheme';
+import {
+  ORG_POLLING_PRESETS,
+  presetIdFromMs,
+  msFromPollingForm,
+} from '../lib/orgPollingSettings';
 
 function getToken() {
   return sessionStorage.getItem('accessToken') || '';
@@ -28,8 +33,10 @@ export default function AdminOrgSettings() {
   const [slugHint, setSlugHint] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [keyLast4, setKeyLast4] = useState(/** @type {string | null} */ (null));
+  const [pollingPresetId, setPollingPresetId] = useState('1m');
+  const [pollingCustomMinutes, setPollingCustomMinutes] = useState(30);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  const logoFileRef = useRef(null);
+  const logoFileRef = useRef(/** @type {HTMLInputElement | null} */ (null));
 
   async function load() {
     const token = getToken();
@@ -59,6 +66,13 @@ export default function AdminOrgSettings() {
     setKeyConfigured(!!d.buildicsApiKeyConfigured);
     setKeyLast4(d.buildicsApiKeyLast4 || null);
     setBuildicsApiKey('');
+    const savedPolling =
+      typeof d.pollingIntervalMs === 'number' && Number.isFinite(d.pollingIntervalMs)
+        ? d.pollingIntervalMs
+        : null;
+    const displayPollingMs = savedPolling ?? 60000;
+    setPollingPresetId(presetIdFromMs(displayPollingMs));
+    setPollingCustomMinutes(Math.max(1, Math.round(displayPollingMs / 60000)));
   }
 
   useEffect(() => {
@@ -90,6 +104,10 @@ export default function AdminOrgSettings() {
       dashboardSubtitle,
       themePrimary: themeToSend,
       logoUrl,
+      pollingIntervalMs: msFromPollingForm({
+        presetId: pollingPresetId,
+        customMinutes: pollingCustomMinutes,
+      }),
     };
     if (buildicsApiKey.trim()) {
       body.buildicsApiKey = buildicsApiKey.trim();
@@ -107,6 +125,27 @@ export default function AdminOrgSettings() {
     }
     setOkMsg('保存しました');
     setBuildicsApiKey('');
+    await load();
+  }
+
+  async function onResetPollingInterval() {
+    const token = getToken();
+    if (!token) return;
+    setErr('');
+    setOkMsg('');
+    setSaving(true);
+    const j = await patchAdminOrgSettings(token, { pollingIntervalMs: '' });
+    setSaving(false);
+    if (j._status === 401 || j._status === 403) {
+      clearAuthSession();
+      nav('/admin/login');
+      return;
+    }
+    if (!j._ok) {
+      setErr(typeof j.msg === 'string' ? j.msg : '既定への復帰に失敗しました');
+      return;
+    }
+    setOkMsg('自動更新間隔をサーバー既定に戻しました');
     await load();
   }
 
@@ -201,7 +240,7 @@ export default function AdminOrgSettings() {
       title="組織設定"
       description={
         <>
-          監視画面（公開ダッシュボード）の<strong>タイトル・テーマ・ロゴ</strong>と、必要に応じて組織専用の{' '}
+          監視画面（公開ダッシュボード）の<strong>タイトル・テーマ・ロゴ・自動更新間隔</strong>と、必要に応じて組織専用の{' '}
           <strong>BUILDICS API キー</strong>を設定します。
           {slugHint ? (
             <span className="block mt-3 text-xs text-slate-500">
@@ -211,13 +250,6 @@ export default function AdminOrgSettings() {
               Firestore の <code className="bg-slate-100 px-1 rounded text-[11px]">orgs</code> でスラッグ変更可
             </span>
           ) : null}
-        </>
-      }
-      headerActions={
-        <>
-          <Link to="/admin" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
-            メニュー
-          </Link>
         </>
       }
     >
@@ -265,6 +297,74 @@ export default function AdminOrgSettings() {
                 autoComplete="off"
               />
             </label>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 dark:border-slate-600 dark:bg-slate-900/40">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                自動更新間隔（監視ダッシュボード）
+              </span>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                BUILDICS から現場データを読み込む間隔です。最短は 1 分です。「サーバー既定に戻す」で組織の上書きを解除し、公開設定の{' '}
+                <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded text-[11px]">polling.intervalMs</code>{' '}
+                に従います。
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {ORG_POLLING_PRESETS.map((p) => (
+                  <label key={p.id} className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 dark:text-slate-200">
+                    <input
+                      type="radio"
+                      name="pollingPreset"
+                      className="accent-sky-600"
+                      checked={pollingPresetId === p.id}
+                      onChange={() => setPollingPresetId(p.id)}
+                    />
+                    {p.label}
+                  </label>
+                ))}
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 dark:text-slate-200">
+                  <input
+                    type="radio"
+                    name="pollingPreset"
+                    className="accent-sky-600"
+                    checked={pollingPresetId === 'custom'}
+                    onChange={() => {
+                      const prevMs = msFromPollingForm({
+                        presetId: pollingPresetId,
+                        customMinutes: pollingCustomMinutes,
+                      });
+                      setPollingPresetId('custom');
+                      setPollingCustomMinutes(Math.max(1, Math.round(prevMs / 60000)));
+                    }}
+                  />
+                  カスタム
+                </label>
+              </div>
+              {pollingPresetId === 'custom' ? (
+                <label className="block max-w-[12rem]">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">間隔（分・1〜1440）</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    step={1}
+                    value={pollingCustomMinutes}
+                    onChange={(ev) => {
+                      const n = Number(ev.target.value);
+                      setPollingCustomMinutes(Number.isFinite(n) ? n : 1);
+                    }}
+                    className="input-field mt-1.5 tabular-nums"
+                    aria-label="カスタム更新間隔（分）"
+                  />
+                </label>
+              ) : null}
+              <button
+                type="button"
+                disabled={saving}
+                className="text-xs font-medium text-sky-800 hover:underline underline-offset-2 disabled:opacity-50 dark:text-sky-300"
+                onClick={onResetPollingInterval}
+              >
+                自動更新間隔をサーバー既定に戻す
+              </button>
+            </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
               <span className="text-xs font-semibold text-slate-600">プレビュー</span>

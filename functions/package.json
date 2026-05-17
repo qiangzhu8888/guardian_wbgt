@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "WBGT監視システム - Cloud Functions（BUILDICSプロキシ）",
   "scripts": {
     "serve": "firebase emulators:start --only \"functions,firestore\"",

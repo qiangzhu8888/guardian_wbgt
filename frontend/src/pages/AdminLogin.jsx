@@ -4,7 +4,7 @@ import ThemeFullscreenControls from '../components/ThemeFullscreenControls';
 import { monitorHomePath } from '../lib/orgRoute';
 import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from '../lib/appBranding';
 import { adminApiUrl } from '../lib/publicApi';
-import { PRIVACY_PATH, TERMS_PATH } from '../lib/productLandingCta';
+import { PRIVACY_PATH, TERMS_PATH, NOTIFICATIONS_PATH } from '../lib/productLandingCta';
 
 export default function AdminLogin() {
   const nav = useNavigate();
@@ -33,7 +33,8 @@ export default function AdminLogin() {
       if (j.user) {
         sessionStorage.setItem('authUser', JSON.stringify(j.user));
       }
-      nav('/admin');
+      const role = j.user?.role;
+      nav(role === 'viewer' ? NOTIFICATIONS_PATH : '/admin');
     } catch {
       setErr('通信に失敗しました');
     }

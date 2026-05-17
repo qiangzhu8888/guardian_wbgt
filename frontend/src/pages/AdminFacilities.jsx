@@ -381,16 +381,6 @@ export default function AdminFacilities() {
           で deviceId を結び付けてください。設置写真は一覧から PNG / JPEG / WebP（5MB 以下）で登録できます。
         </>
       }
-      headerActions={
-        <>
-          <Link to="/admin" className="btn-admin-toolbar-ghost">
-            メニュー
-          </Link>
-          <Link to="/admin/devices" className="btn-admin-toolbar-ghost hidden sm:inline-flex">
-            デバイス
-          </Link>
-        </>
-      }
     >
       {err ? (
         <p className="text-sm text-red-800 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{err}</p>
@@ -707,6 +697,25 @@ export default function AdminFacilities() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-4 border-t border-sky-100/90 dark:border-sky-900/60 bg-gradient-to-r from-sky-50/95 via-white to-slate-50/80 dark:from-sky-950/35 dark:via-slate-900/85 dark:to-slate-950/90">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-bold text-slate-900 dark:text-slate-50">次のステップ（手順 2）</p>
+            <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              場所が登録できたら、<strong className="font-semibold text-slate-800 dark:text-slate-200">BUILDICS のデバイス ID</strong>
+              を上記の<strong className="font-semibold text-slate-800 dark:text-slate-200">場所 ID</strong>
+              に紐付けてください。監視画面のカードにセンサーデータが載ります。
+            </p>
+          </div>
+          <Link
+            to="/admin/devices"
+            className="btn-primary-solid inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold shadow-md shrink-0 w-full sm:w-auto text-center"
+          >
+            <span aria-hidden className="text-base leading-none">
+              →
+            </span>
+            デバイス紐付け
+          </Link>
         </div>
       </div>
     </AdminLayout>

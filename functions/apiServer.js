@@ -4,6 +4,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
 
 const defaultPublicConfig = require('./defaults/publicConfig.json');
 const {
@@ -1293,7 +1294,13 @@ function createApiApp() {
         ps.exists && ps.data().logoUrl != null ? String(ps.data().logoUrl).trim() : '';
     }
 
-    const dashboardFields = ['dashboardTitle', 'dashboardSubtitle', 'themePrimary', 'logoUrl'];
+    const dashboardFields = [
+      'dashboardTitle',
+      'dashboardSubtitle',
+      'themePrimary',
+      'logoUrl',
+      'pollingIntervalMs',
+    ];
     const patch = {};
     let changed = false;
     /** @type {string | null | undefined} */
@@ -1622,6 +1629,190 @@ function createApiApp() {
     await ref.delete();
     await appendDeviceAudit(req.user, 'platform.user.delete', { userId });
     res.json({ code: 200 });
+  });
+
+  /** viewer / admin / superadmin — 自分のユーザー行のみ */
+  const NOTIFICATION_AUTH_ROLES = ['viewer', 'admin', 'superadmin'];
+  /** @returns {string} */
+  function normalizeMinLevelForPush(s) {
+    const t = String(s || '').trim();
+    const allowed = new Set(['注意', '警戒', '厳重警戒', '危険']);
+    if (allowed.has(t)) return t;
+    return '厳重警戒';
+  }
+
+  /**
+   * @param {FirebaseFirestore.Firestore} db
+   * @param {string} uid
+   * @param {string} rawToken
+   */
+  async function upsertUserPushToken(db, uid, rawToken) {
+    const token = String(rawToken || '').trim().slice(0, 4096);
+    if (!token.length) throw Object.assign(new Error('token が空です'), { httpCode: 400 });
+    const ref = db.collection('users').doc(uid);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Object.assign(new Error('ユーザーが見つかりません'), { httpCode: 404 });
+      }
+      const u = snap.data() || {};
+      const prev = Array.isArray(u.notificationPushTokens) ? [...u.notificationPushTokens] : [];
+      const next = prev.filter((x) => x && x.token !== token);
+      next.push({ token, createdAt: Date.now() });
+      while (next.length > 10) next.shift();
+      const prefs = typeof u.notificationPrefs === 'object' && u.notificationPrefs ? u.notificationPrefs : {};
+      tx.update(ref, {
+        notificationPushTokens: next,
+        notificationPrefs: {
+          ...prefs,
+          enabled: true,
+          minLevelForPush: normalizeMinLevelForPush(prefs.minLevelForPush || '厳重警戒'),
+        },
+        updatedAt: Date.now(),
+      });
+    });
+  }
+
+  /**
+   * @param {FirebaseFirestore.Firestore} db
+   * @param {string} uid
+   * @param {string} rawToken
+   */
+  async function removeUserPushToken(db, uid, rawToken) {
+    const token = String(rawToken || '').trim();
+    if (!token.length) return;
+    const ref = db.collection('users').doc(uid);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const u = snap.data() || {};
+      const prev = Array.isArray(u.notificationPushTokens) ? u.notificationPushTokens : [];
+      const next = prev.filter((x) => !x || x.token !== token);
+      tx.update(ref, { notificationPushTokens: next, updatedAt: Date.now() });
+    });
+  }
+
+  app.get('/api/me/notification-settings', requireAuth(NOTIFICATION_AUTH_ROLES), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      const db = getFirestore();
+      const snap = await db.collection('users').doc(req.user.uid).get();
+      if (!snap.exists) return res.status(404).json({ code: 404, msg: 'ユーザーが見つかりません' });
+      const u = snap.data() || {};
+      const prefsRaw = typeof u.notificationPrefs === 'object' && u.notificationPrefs ? u.notificationPrefs : {};
+      const tokens = Array.isArray(u.notificationPushTokens) ? u.notificationPushTokens : [];
+
+      /** @typedef {{enabled?: boolean|null, minLevelForPush?: string}} Prefs */
+      let enabledStored = prefsRaw.enabled;
+
+      /** 未定義や null のときだけ：トークン登録済みならオン扱い */
+      let enabledEffective;
+      if (enabledStored === true) enabledEffective = true;
+      else if (enabledStored === false) enabledEffective = false;
+      else enabledEffective = tokens.length > 0;
+
+      res.json({
+        code: 200,
+        prefs: {
+          enabled: typeof enabledStored === 'boolean' ? enabledStored : enabledEffective,
+          minLevelForPush: normalizeMinLevelForPush(prefsRaw.minLevelForPush),
+        },
+        registeredDeviceCount: tokens.length,
+      });
+    } catch (e) {
+      console.error('/api/me/notification-settings GET', e);
+      res.status(500).json({ code: 500, msg: '取得に失敗しました' });
+    }
+  });
+
+  app.patch('/api/me/notification-settings', requireAuth(NOTIFICATION_AUTH_ROLES), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      const enabled = req.body?.enabled;
+      const ml = req.body?.minLevelForPush;
+      const hasBool = typeof enabled === 'boolean';
+      const hasMl = ml !== undefined && ml !== null;
+      if (!hasBool && !hasMl) {
+        return res.status(400).json({ code: 400, msg: 'enabled または minLevelForPush を指定してください' });
+      }
+      const db = getFirestore();
+      const ref = db.collection('users').doc(req.user.uid);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ code: 404, msg: 'ユーザーが見つかりません' });
+      const prev = snap.data() || {};
+      const oldPrefs =
+        typeof prev.notificationPrefs === 'object' && prev.notificationPrefs ? prev.notificationPrefs : {};
+      const nextPrefs = { ...oldPrefs };
+      if (hasBool) nextPrefs.enabled = Boolean(enabled);
+      if (hasMl) nextPrefs.minLevelForPush = normalizeMinLevelForPush(ml);
+      await ref.update({
+        notificationPrefs: nextPrefs,
+        updatedAt: Date.now(),
+      });
+      res.json({ code: 200 });
+    } catch (e) {
+      console.error('/api/me/notification-settings PATCH', e);
+      res.status(500).json({ code: 500, msg: '保存に失敗しました' });
+    }
+  });
+
+  app.post('/api/me/push-token', requireAuth(NOTIFICATION_AUTH_ROLES), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      await upsertUserPushToken(getFirestore(), req.user.uid, req.body?.token || '');
+      await appendDeviceAudit(req.user, 'notification.push.register', {});
+      res.json({ code: 200 });
+    } catch (e) {
+      if (e.httpCode === 400) return res.status(400).json({ code: 400, msg: String(e.message) });
+      if (e.httpCode === 404) return res.status(404).json({ code: 404, msg: String(e.message) });
+      console.error('/api/me/push-token', e);
+      res.status(500).json({ code: 500, msg: '登録に失敗しました' });
+    }
+  });
+
+  app.delete('/api/me/push-token', requireAuth(NOTIFICATION_AUTH_ROLES), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      await removeUserPushToken(getFirestore(), req.user.uid, req.body?.token || '');
+      res.json({ code: 200 });
+    } catch (e) {
+      console.error('/api/me/push-token DELETE', e);
+      res.status(500).json({ code: 500, msg: '削除に失敗しました' });
+    }
+  });
+
+  app.post('/api/me/notifications/test', requireAuth(NOTIFICATION_AUTH_ROLES), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    try {
+      const db = getFirestore();
+      const uid = req.user.uid;
+      const snap = await db.collection('users').doc(uid).get();
+      const tokens = snap.exists ? snap.data()?.notificationPushTokens || [] : [];
+      const ids = tokens.map((x) => String(x?.token || '').trim()).filter(Boolean);
+      if (!ids.length) return res.status(400).json({ code: 400, msg: '登録済みのトークンがありません' });
+
+      await getMessaging().sendEachForMulticast({
+        tokens: ids.slice(0, 50),
+        notification: {
+          title: 'GUARDIAN テスト通知',
+          body:
+            req.user.role === 'viewer'
+              ? 'Viewer によるプッシュ確認です。異常検知とは別です。'
+              : 'ログイン済みアカウントでのプッシュ確認です。',
+        },
+        data: {
+          kind: 'test',
+          role: String(req.user.role),
+        },
+      });
+      await appendDeviceAudit(req.user, 'notification.push.test', { targets: ids.length });
+      res.json({ code: 200 });
+    } catch (e) {
+      console.error('/api/me/notifications/test', e);
+      res.status(500).json({
+        code: 500,
+        msg: 'テスト送信に失敗しました。Firebase とブラウザの通知許可を確認してください。',
+      });
+    }
   });
 
   app.post('/api/buildics', async (req, res) => {

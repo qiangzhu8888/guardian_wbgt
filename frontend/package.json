@@ -1,12 +1,14 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "generate:pwa-icons": "node scripts/gen-pwa-icons.mjs",
-    "prebuild": "npm run generate:pwa-icons",
+    "sync:dashboard-image": "node scripts/sync-dashboard-image.mjs",
+    "prebuild": "npm run generate:pwa-icons && npm run sync:dashboard-image && npm run generate:firebase-messaging-sw",
+    "generate:firebase-messaging-sw": "node scripts/gen-firebase-messaging-sw.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run"

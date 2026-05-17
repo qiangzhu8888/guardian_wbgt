@@ -24,11 +24,8 @@
 const fs = require('fs');
 const path = require('path');
 
-try {
-  require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
-} catch {
-  /* optional */
-}
+const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
+loadFunctionsDotEnv();
 
 function parseJsonBody(text) {
   try {

@@ -20,7 +20,7 @@ test.describe('公開ドキュメント', () => {
     await expect(page.getByRole('heading', { name: /^v\d+\.\d+\.\d+/ }).first()).toBeVisible({ timeout: 30_000 });
     const banner = await page.locator('header').textContent();
     expect(banner || '').toMatch(versionRe);
-    await expect(page.getByText('監視 UI・参照予報の読みやすさ')).toBeVisible();
+    await expect(page.getByText('暑さのアラート通知').first()).toBeVisible();
     await expect(page.getByText('日本気象協会').first()).toBeVisible();
   });
 
@@ -31,6 +31,6 @@ test.describe('公開ドキュメント', () => {
     });
     await expect(page.getByText('現場センサーに基づく現在の WBGT（暑さ指数の推定値）')).toBeVisible();
     await expect(page.getByText('気象庁の地域ヒート注意情報はダッシュボードのカードには出しません')).toBeVisible();
-    await expect(page.getByText('58px')).toBeVisible();
+    await expect(page.getByText('58px').first()).toBeVisible();
   });
 });
