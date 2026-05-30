@@ -1,17 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createRequire } from 'node:module';
 
-const require = createRequire(import.meta.url);
-const jwt = require('../../../functions/node_modules/jsonwebtoken');
-
-const JWT_SECRET = 'acceptance-e2e-jwt';
-
+/** 管理 API は route モックのため JWT 検証は行われない（実トークン不要） */
 function makeAdminSession() {
-  const token = jwt.sign(
-    { sub: 'e2e-admin', role: 'admin', orgId: 'default' },
-    JWT_SECRET,
-    { algorithm: 'HS256', expiresIn: '1h' },
-  );
+  const token = 'e2e-mock-admin-token';
   const user = {
     id: 'e2e-admin',
     email: 'e2e@example.com',
