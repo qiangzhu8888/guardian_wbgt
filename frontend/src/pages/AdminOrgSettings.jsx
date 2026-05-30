@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout';
 import { monitorHomePath } from '../lib/orgRoute';
-import { fetchAdminOrgSettings, patchAdminOrgSettings, uploadAdminOrgLogo } from '../lib/publicApi';
+import {
+  fetchAdminOrgSettings,
+  patchAdminOrgSettings,
+  testAdminBuildicsApiKey,
+  uploadAdminOrgLogo,
+} from '../lib/publicApi';
 import { clearAuthSession, getAuthUser } from '../lib/authSession';
 import {
   DASHBOARD_THEME_PRESETS,
@@ -33,6 +38,9 @@ export default function AdminOrgSettings() {
   const [slugHint, setSlugHint] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(false);
   const [keyLast4, setKeyLast4] = useState(/** @type {string | null} */ (null));
+  const [buildicsTesting, setBuildicsTesting] = useState(false);
+  const [buildicsTestMsg, setBuildicsTestMsg] = useState('');
+  const [buildicsTestOk, setBuildicsTestOk] = useState(/** @type {boolean | null} */ (null));
   const [pollingPresetId, setPollingPresetId] = useState('1m');
   const [pollingCustomMinutes, setPollingCustomMinutes] = useState(30);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -209,6 +217,44 @@ export default function AdminOrgSettings() {
     setLogoUrl('');
     setOkMsg('ロゴを削除しました');
     await load();
+  }
+
+  async function onTestBuildicsKey() {
+    const token = getToken();
+    if (!token) return;
+    const typed = buildicsApiKey.trim();
+    if (!typed && !keyConfigured) {
+      setBuildicsTestOk(false);
+      setBuildicsTestMsg('テストする API キーを入力するか、先にキーを保存してください。');
+      return;
+    }
+    setErr('');
+    setBuildicsTestMsg('');
+    setBuildicsTestOk(null);
+    setBuildicsTesting(true);
+    const body = typed ? { buildicsApiKey: typed } : {};
+    const j = await testAdminBuildicsApiKey(token, body);
+    setBuildicsTesting(false);
+    if (j._status === 401 || j._status === 403) {
+      clearAuthSession();
+      nav('/admin/login');
+      return;
+    }
+    const msg = typeof j.message === 'string' ? j.message : typeof j.msg === 'string' ? j.msg : '';
+    setBuildicsTestOk(!!j.ok);
+    if (msg) {
+      const sourceLabel =
+        j.keySource === 'input'
+          ? '（入力中のキー）'
+          : j.keySource === 'org'
+            ? '（組織に保存済み）'
+            : j.keySource === 'env'
+              ? '（サーバー環境変数）'
+              : '';
+      setBuildicsTestMsg(`${msg}${sourceLabel}`);
+    } else {
+      setBuildicsTestMsg(j.ok ? '接続に成功しました' : '通信テストに失敗しました');
+    }
   }
 
   async function onClearBuildicsKey() {
@@ -488,12 +534,39 @@ export default function AdminOrgSettings() {
                 <input
                   type="password"
                   value={buildicsApiKey}
-                  onChange={(ev) => setBuildicsApiKey(ev.target.value)}
+                  onChange={(ev) => {
+                    setBuildicsApiKey(ev.target.value);
+                    setBuildicsTestMsg('');
+                    setBuildicsTestOk(null);
+                  }}
                   className="input-field mt-1.5"
                   autoComplete="off"
                   placeholder="新しいキーを入力"
                 />
               </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onTestBuildicsKey}
+                  disabled={buildicsTesting || saving}
+                  className="btn-secondary-outline text-sm py-2 px-4 disabled:opacity-50"
+                >
+                  {buildicsTesting ? '通信テスト中…' : '通信テスト'}
+                </button>
+                <span className="text-[11px] text-slate-500">
+                  保存前の入力キーでもテストできます。未入力時は保存済みキー（なければサーバー既定）を使います。
+                </span>
+              </div>
+              {buildicsTestMsg ? (
+                <p
+                  className={`text-xs leading-relaxed ${
+                    buildicsTestOk ? 'text-emerald-800' : 'text-amber-900'
+                  }`}
+                  role="status"
+                >
+                  {buildicsTestMsg}
+                </p>
+              ) : null}
               {keyConfigured ? (
                 <button
                   type="button"

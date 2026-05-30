@@ -7,6 +7,14 @@ import {
   DEVICE_BULK_CSV_TEMPLATE,
 } from '../lib/parseDeviceBulkCsv';
 import { adminApiFetch, clearAuthSession } from '../lib/authSession';
+import DeviceSourceBadge from '../components/DeviceSourceBadge';
+import {
+  buildDemoDeviceIdSet,
+  getDeviceIdSourceKind,
+  resolveDeviceIdSourceKind,
+  deviceIdSourceKindOnly,
+  deviceSourceHint,
+} from '../lib/deviceIdSourceKind';
 
 const BULK_CHUNK = 100;
 const BULK_PREVIEW_ROWS = 10;
@@ -15,6 +23,8 @@ const BULK_ERR_SHOW = 20;
 export default function AdminDevices() {
   const nav = useNavigate();
   const fileInputRef = useRef(null);
+  /** 解除済み行の再有効化先 facilityId（deviceId → 文字列） */
+  const relinkFacilityPickRef = useRef({});
   const [items, setItems] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [err, setErr] = useState('');
@@ -31,6 +41,75 @@ export default function AdminDevices() {
   const [bulkBatch, setBulkBatch] = useState(null);
   const [csvDragOver, setCsvDragOver] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [demoDeviceIds, setDemoDeviceIds] = useState([]);
+  const [deviceProbe, setDeviceProbe] = useState(null);
+  const [deviceProbing, setDeviceProbing] = useState(false);
+
+  const demoIdSet = useMemo(() => buildDemoDeviceIdSet(demoDeviceIds), [demoDeviceIds]);
+  const registerResolved = useMemo(() => {
+    const trimmed = String(deviceId || '').trim();
+    if (deviceProbe?.deviceId === trimmed && deviceProbe.sourceKind) {
+      return {
+        kind: deviceProbe.sourceKind,
+        reason: deviceProbe.sourceReason ?? null,
+      };
+    }
+    const buildicsHasLiveData =
+      deviceProbe?.deviceId === trimmed && deviceProbe.buildicsProbed
+        ? deviceProbe.buildicsHasLiveData
+        : null;
+    return resolveDeviceIdSourceKind(trimmed, demoIdSet, {
+      buildicsHasLiveData:
+        buildicsHasLiveData === null ? undefined : buildicsHasLiveData,
+    });
+  }, [deviceId, demoIdSet, deviceProbe]);
+  const registerDeviceKind = deviceIdSourceKindOnly(registerResolved);
+  const registerHint = deviceSourceHint(registerResolved.reason, registerDeviceKind);
+
+  useEffect(() => {
+    const trimmed = String(deviceId || '').trim();
+    if (!/^\d{6,24}$/.test(trimmed)) {
+      setDeviceProbe(null);
+      setDeviceProbing(false);
+      return undefined;
+    }
+    const local = resolveDeviceIdSourceKind(trimmed, demoIdSet);
+    if (local.kind === 'demo' || local.kind === 'unknown') {
+      setDeviceProbe(null);
+      setDeviceProbing(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setDeviceProbing(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await adminApiFetch(
+          `/api/admin/devices/probe?deviceId=${encodeURIComponent(trimmed)}`,
+        );
+        const j = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && j.deviceId === trimmed) {
+          setDeviceProbe({
+            deviceId: trimmed,
+            sourceKind: j.sourceKind,
+            sourceReason: j.sourceReason,
+            buildicsHasLiveData: j.buildicsHasLiveData,
+            buildicsProbed: j.buildicsProbed,
+          });
+        } else {
+          setDeviceProbe(null);
+        }
+      } catch {
+        if (!cancelled) setDeviceProbe(null);
+      } finally {
+        if (!cancelled) setDeviceProbing(false);
+      }
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [deviceId, demoIdSet]);
 
   async function loadFacilities() {
     const res = await adminApiFetch('/api/admin/facilities');
@@ -62,6 +141,9 @@ export default function AdminDevices() {
       return;
     }
     setItems(j.data || []);
+    if (Array.isArray(j.demoDeviceIds)) {
+      setDemoDeviceIds(j.demoDeviceIds);
+    }
     loadFacilities();
   }
 
@@ -82,6 +164,21 @@ export default function AdminDevices() {
     return f?.name ?? '—';
   }
 
+  async function setDashboardDisplayDevice(did) {
+    setErr('');
+    const res = await adminApiFetch(`/api/admin/devices/${encodeURIComponent(did)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dashboardDisplay: true }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.msg || 'ダッシュボード表示の指定に失敗しました');
+      return;
+    }
+    load();
+  }
+
   async function patchDeviceFacility(did, newFacilityId) {
     setErr('');
     const res = await adminApiFetch(`/api/admin/devices/${encodeURIComponent(did)}`, {
@@ -96,6 +193,44 @@ export default function AdminDevices() {
       setErr(j.msg || '紐付けの更新に失敗しました');
       return;
     }
+    load();
+  }
+
+  async function unlinkDevice(did) {
+    const ok = window.confirm(
+      `デバイス ${did} の場所への紐付けを解除します。\n監視画面の地点別一覧には表示されなくなります。よろしいですか？`,
+    );
+    if (!ok) return;
+    setErr('');
+    setSuccessMsg('');
+    const res = await adminApiFetch(`/api/admin/devices/${encodeURIComponent(did)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlink: true }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.msg || '紐付けの解除に失敗しました');
+      return;
+    }
+    setSuccessMsg(`デバイス ${did} の紐付けを解除しました`);
+    load();
+  }
+
+  async function relinkDevice(did, newFacilityId) {
+    setErr('');
+    setSuccessMsg('');
+    const res = await adminApiFetch(`/api/admin/devices/${encodeURIComponent(did)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disabled: false, facilityId: Number(newFacilityId) }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(j.msg || '再有効化に失敗しました');
+      return;
+    }
+    setSuccessMsg(`デバイス ${did} を再有効化しました`);
     load();
   }
 
@@ -304,8 +439,17 @@ export default function AdminDevices() {
             先に <Link to="/admin/facilities" className="text-sky-800 underline font-semibold">場所を登録</Link>
             しておきます。
           </li>
-          <li>下のフォーム（QR スキャン可）または CSV でデバイスを追加します（既存 ID と重複するとエラーになります）。</li>
+          <li>
+            下のフォーム（QR スキャン可）または CSV でデバイスを追加します。入力した ID が<strong>デモ用</strong>か
+            <strong>現場センサー（実機）</strong>か、種別バッジで確認できます。
+          </li>
+          <li>
+            同じ場所に複数デバイスがある場合は、一覧の<strong>ダッシュボード表示</strong>で監視画面に使う1台を指定します（未指定時は最終更新が新しいデバイス）。
+          </li>
           <li>一覧の「紐付け場所」から、あとから別の場所へ変更できます。</li>
+          <li>
+            不要になった行は<strong>紐付け解除</strong>で監視対象から外せます。解除後は同じデバイス ID で上のフォームから再登録できます。
+          </li>
         </ol>
       </div>
 
@@ -362,6 +506,19 @@ export default function AdminDevices() {
                 QR スキャン
               </button>
             </div>
+            {registerDeviceKind !== 'unknown' ? (
+              <div className="mt-2 flex flex-col gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <DeviceSourceBadge kind={registerDeviceKind} />
+                  {deviceProbing ? (
+                    <span className="text-[11px] text-slate-500">BUILDICS 照会中…</span>
+                  ) : null}
+                </div>
+                {registerHint ? (
+                  <p className="text-[11px] text-slate-600 leading-snug">{registerHint}</p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div>
             <label htmlFor="adm-fac" className="block text-xs font-semibold text-slate-600 mb-1">
@@ -686,6 +843,7 @@ export default function AdminDevices() {
                         <tr>
                           <th className="p-2 font-medium">#</th>
                           <th className="p-2 font-medium">deviceId</th>
+                          <th className="p-2 font-medium">種別</th>
                           <th className="p-2 font-medium">facilityId</th>
                           <th className="p-2 font-medium">label</th>
                         </tr>
@@ -695,6 +853,9 @@ export default function AdminDevices() {
                           <tr key={`${row.deviceId}-${idx}`} className="border-t border-slate-100">
                             <td className="p-2 text-slate-500">{idx + 1}</td>
                             <td className="p-2 font-mono text-slate-800">{row.deviceId}</td>
+                            <td className="p-2">
+                              <DeviceSourceBadge kind={getDeviceIdSourceKind(row.deviceId, demoIdSet)} />
+                            </td>
                             <td className="p-2 font-mono text-slate-700">{row.facilityId}</td>
                             <td className="p-2 text-slate-700 max-w-[120px] truncate" title={row.label}>
                               {row.label || '—'}
@@ -772,16 +933,19 @@ export default function AdminDevices() {
             <thead className="bg-slate-50 text-left text-xs text-slate-600">
               <tr>
                 <th className="p-2.5 font-medium">デバイス ID</th>
+                <th className="p-2.5 font-medium">種別</th>
                 <th className="p-2.5 font-medium min-w-[180px]">紐付け場所</th>
                 <th className="p-2.5 font-medium">場所 ID</th>
                 <th className="p-2.5 font-medium">表示名</th>
+                <th className="p-2.5 font-medium min-w-[100px]">ダッシュボード</th>
                 <th className="p-2.5 font-medium">状態</th>
+                <th className="p-2.5 font-medium min-w-[120px]">操作</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && !loading ? (
                 <tr>
-                  <td colSpan={5} className="p-6 text-center text-slate-500 text-sm">
+                  <td colSpan={8} className="p-6 text-center text-slate-500 text-sm">
                     まだデバイスがありません。上のフォームまたは CSV から追加してください。
                   </td>
                 </tr>
@@ -789,6 +953,15 @@ export default function AdminDevices() {
                 items.map((row) => (
                   <tr key={row.deviceId} className="border-t border-slate-100 hover:bg-slate-50/80">
                     <td className="p-2.5 font-mono text-xs align-top">{row.deviceId}</td>
+                    <td className="p-2.5 align-top">
+                      <DeviceSourceBadge
+                        kind={
+                          row.sourceKind === 'demo' || row.sourceKind === 'live'
+                            ? row.sourceKind
+                            : getDeviceIdSourceKind(row.deviceId, demoIdSet)
+                        }
+                      />
+                    </td>
                     <td className="p-2 min-w-[160px] align-top">
                       {facilities.length > 0 && !row.disabled ? (
                         <select
@@ -807,23 +980,94 @@ export default function AdminDevices() {
                             </option>
                           ))}
                         </select>
+                      ) : row.disabled ? (
+                        <span className="text-slate-500 text-xs">（解除済み）</span>
                       ) : (
                         <span className="text-slate-700 text-xs leading-relaxed">
                           {facilityName(row.facilityId)}
                         </span>
                       )}
                     </td>
-                    <td className="p-2.5 font-mono text-xs text-slate-600 align-top">{row.facilityId}</td>
+                    <td className="p-2.5 font-mono text-xs text-slate-600 align-top">
+                      {row.disabled || row.facilityId == null || row.facilityId === ''
+                        ? '—'
+                        : row.facilityId}
+                    </td>
                     <td className="p-2.5 text-slate-800 align-top">{row.label || '—'}</td>
+                    <td className="p-2.5 align-top">
+                      {row.disabled || row.facilityId == null || row.facilityId === '' ? (
+                        <span className="text-slate-400 text-xs">—</span>
+                      ) : (row.facilitySiblingCount ?? 0) <= 1 ? (
+                        <span className="text-[11px] text-slate-500">自動（1台のみ）</span>
+                      ) : row.dashboardDisplayEffective ? (
+                        <span className="inline-flex items-center rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-900">
+                          表示中
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-sky-800 hover:text-sky-950 underline underline-offset-2"
+                          onClick={() => setDashboardDisplayDevice(row.deviceId)}
+                        >
+                          表示に使う
+                        </button>
+                      )}
+                    </td>
                     <td className="p-2.5 align-top">
                       {row.disabled ? (
                         <span className="text-amber-800 text-xs bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded">
-                          無効
+                          解除済み
                         </span>
                       ) : (
                         <span className="text-emerald-800 text-xs bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
                           有効
                         </span>
+                      )}
+                    </td>
+                    <td className="p-2.5 align-top">
+                      {!row.disabled ? (
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-amber-800 hover:text-amber-950 underline underline-offset-2"
+                          onClick={() => unlinkDevice(row.deviceId)}
+                        >
+                          紐付け解除
+                        </button>
+                      ) : facilities.length > 0 ? (
+                        <div className="flex flex-col gap-1.5 min-w-[140px]">
+                          <select
+                            className="input-field text-xs py-1.5 px-2"
+                            defaultValue={
+                              relinkFacilityPickRef.current[row.deviceId] ??
+                              String(facilities[0]?.facilityId ?? '')
+                            }
+                            aria-label={`${row.deviceId} の再有効化先`}
+                            onChange={(e) => {
+                              relinkFacilityPickRef.current[row.deviceId] = e.target.value;
+                            }}
+                          >
+                            {facilities.map((f) => (
+                              <option key={f.facilityId} value={String(f.facilityId)}>
+                                {f.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-sky-800 hover:text-sky-950 underline underline-offset-2 text-left"
+                            onClick={() =>
+                              relinkDevice(
+                                row.deviceId,
+                                relinkFacilityPickRef.current[row.deviceId] ??
+                                  String(facilities[0]?.facilityId ?? ''),
+                              )
+                            }
+                          >
+                            再有効化
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-500">場所登録後に再有効化</span>
                       )}
                     </td>
                   </tr>

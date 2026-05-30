@@ -278,14 +278,23 @@ export default function AdminManualPage() {
             <li>「登録」をする前に<strong>紐付け場所</strong>のリストで<strong>載せたい場所</strong>が選べる状態にします。</li>
             <li>
               <strong>デバイス ID</strong>
-              と<strong>表示名（あれば）</strong>を入力し、<strong>この内容で登録</strong>をクリックします。
+              を入力すると、<strong>デモ用</strong>（紫）か<strong>現場センサー</strong>（緑）かがバッジで表示されます。表示名（ラベル）は任意です。
+            </li>
+            <li>
+              <strong>この内容で登録</strong>をクリックして台帳に追加します。
             </li>
             <li>
               現場のシール読みなら<strong>QR スキャン</strong>
               が使える環境です（ブラウザのカメラ許可が必要。<strong>https</strong>{' '}
               またはローカルの検証用アドレスに限られます）。
             </li>
-            <li>すでに台帳に同じデバイス ID があるときは<strong>だめになります（重複エラー）</strong>。一覧を見直してください。</li>
+            <li>
+              すでに台帳に同じデバイス ID があるときは<strong>だめになります（重複エラー）</strong>。ただし<strong>紐付け解除済み</strong>
+              の行は、同じ ID で上のフォームから再登録できます。
+            </li>
+            <li>
+              一覧の<strong>紐付け解除</strong>で監視対象から外せます。解除済みの行は<strong>再有効化</strong>で場所を選び直せます。
+            </li>
           </ol>
 
           <p className="font-semibold text-slate-900 dark:text-white pt-4">B. CSV または JSON でたくさん登録するとき</p>

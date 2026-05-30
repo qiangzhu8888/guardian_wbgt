@@ -84,6 +84,24 @@ export async function patchAdminOrgSettings(accessToken, body) {
 }
 
 /**
+ * BUILDICS API キーの疎通テスト（未保存の入力キーでも可）
+ * @param {string} accessToken
+ * @param {{ buildicsApiKey?: string }} [body] 省略時は組織保存キー → 環境変数フォールバック
+ */
+export async function testAdminBuildicsApiKey(accessToken, body = {}) {
+  const res = await fetch(adminApiUrl('/api/admin/org-settings/buildics-test'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const j = await res.json().catch(() => ({}));
+  return { ...j, _ok: res.ok, _status: res.status };
+}
+
+/**
  * ロゴ画像を Firebase Storage に保存し、orgs.logoUrl を更新する。
  * @param {string} accessToken
  * @param {File} file PNG / JPEG / WebP / SVG

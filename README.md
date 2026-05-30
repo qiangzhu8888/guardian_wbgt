@@ -19,16 +19,16 @@ BUILDICS® のセンサーデータを取得し、暑さ指数（WBGT）を推�
 ## ディレクトリ構成（抜粋）
 
 
-| パス                | 説明                                             |
-| ----------------- | ---------------------------------------------- |
-| `frontend/`       | React SPA（Vite）                                |
-| `functions/`      | Cloud Functions（Express ベースの BFF）              |
+| パス                | 説明                                                                      |
+| ----------------- | ----------------------------------------------------------------------- |
+| `frontend/`       | React SPA（Vite）                                                         |
+| `functions/`      | Cloud Functions（Express ベースの BFF）                                       |
 | `tests/`          | Playwright 受入（`frontend/dist` を `vite preview` で起動して `/changelog` 等を検証） |
-| `firebase.json`   | Hosting（`frontend/dist`）と `/api/`** → `api` 関数 |
-| `firestore.rules` | クライアントは原則拒否（アクセスは Functions 経由）                |
-| `DEPLOY.md`       | 本番デプロイ・シークレット・bootstrap の詳細                    |
-| `VERSION`         | フッター表示用のバージョン文字列                               |
-| `test-api.cjs`    | BUILDICS 直結の接続確認（`BUILDICS_API_KEY` 必須）        |
+| `firebase.json`   | Hosting（`frontend/dist`）と `/api/`** → `api` 関数                          |
+| `firestore.rules` | クライアントは原則拒否（アクセスは Functions 経由）                                         |
+| `DEPLOY.md`       | 本番デプロイ・シークレット・bootstrap の詳細                                             |
+| `VERSION`         | フッター表示用のバージョン文字列                                                        |
+| `test-api.cjs`    | BUILDICS 直結の接続確認（`BUILDICS_API_KEY` 必須）                                 |
 
 
 ## セットアップ
