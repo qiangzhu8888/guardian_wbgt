@@ -148,6 +148,40 @@ describe('api requireAuth', () => {
     expect(res.body.data).not.toHaveProperty('buildicsApiKey');
   });
 
+  it('POST /api/admin/org-settings/buildics-test uses input key', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 200, data: [] }),
+      }),
+    );
+    const token = jwt.sign(
+      { sub: 'u1', role: 'admin', orgId: 'default' },
+      process.env.JWT_ACCESS_SECRET,
+      { algorithm: 'HS256', expiresIn: '5m' },
+    );
+    const res = await request(app)
+      .post('/api/admin/org-settings/buildics-test')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ buildicsApiKey: 'typed-key-for-test' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.keySource).toBe('input');
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/common/apgateway/status'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Apikey: 'typed-key-for-test' }),
+      }),
+    );
+    jest.restoreAllMocks();
+  });
+
+  it('POST /api/admin/org-settings/buildics-test returns 401 without token', async () => {
+    const res = await request(app).post('/api/admin/org-settings/buildics-test').send({});
+    expect(res.status).toBe(401);
+  });
+
   it('allows superadmin to use admin devices route', async () => {
     const token = jwt.sign(
       { sub: 'u2', role: 'superadmin', orgId: 'default' },

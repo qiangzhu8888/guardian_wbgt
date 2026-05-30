@@ -55,6 +55,19 @@ const { signAccess, signRefresh, verifyAccess, verifyRefresh } = require('./lib/
 const jwaWbgt = require('./lib/jwaWbgtClient');
 const jmaHeatAdvisory = require('./lib/jmaHeatAdvisoryClient');
 const { fetchLocationConditions } = require('./lib/locationConditions');
+const { deviceLedgerAllowsRelink } = require('./lib/deviceLedgerRelink');
+const { getKnownDemoDeviceIds } = require('./lib/demoDeviceIds');
+const {
+  resolveDeviceIdSourceKind,
+  deviceIdSourceKindOnly,
+} = require('./lib/deviceIdSourceKind');
+const { probeBuildicsDeviceHasLiveData } = require('./lib/probeBuildicsDevice');
+const { testBuildicsApiKey } = require('./lib/testBuildicsApiKey');
+const {
+  pickDashboardDeviceMappings,
+  setExclusiveDashboardDisplay,
+  ensureDashboardDisplayIfLonely,
+} = require('./lib/dashboardDeviceMappings');
 
 const BUILDICS_API_BASE = 'https://www.buildics.jp/api';
 
@@ -170,18 +183,22 @@ async function loadPublicConfigFromFirestore(oid) {
     .where('orgId', '==', oid)
     .get();
 
-  const fromFs = [];
+  const ledgerDevices = [];
   snap.forEach((doc) => {
     const d = doc.data();
-    if (d.disabled === true) return;
-    const facilityId = Number(d.facilityId);
-    if (!Number.isFinite(facilityId)) return;
-    fromFs.push({ deviceId: doc.id, facilityId });
+    ledgerDevices.push({
+      deviceId: doc.id,
+      facilityId: d.facilityId,
+      dashboardDisplay: d.dashboardDisplay,
+      updatedAt: d.updatedAt,
+      disabled: d.disabled,
+    });
   });
 
   const base = JSON.parse(JSON.stringify(defaultPublicConfig));
-  if (fromFs.length > 0) {
-    base.deviceMappings = fromFs;
+  const dashboardMappings = pickDashboardDeviceMappings(ledgerDevices);
+  if (dashboardMappings.length > 0) {
+    base.deviceMappings = dashboardMappings;
   }
   base.orgId = oid;
 
@@ -1075,11 +1092,61 @@ function createApiApp() {
       .collection('devices')
       .where('orgId', '==', req.user.orgId)
       .get();
+    const demoDeviceIds = getKnownDemoDeviceIds();
+    const demoSet = new Set(demoDeviceIds);
     const items = [];
     snap.forEach((doc) => {
-      items.push({ deviceId: doc.id, ...doc.data() });
+      const row = { deviceId: doc.id, ...doc.data() };
+      const resolved = resolveDeviceIdSourceKind(doc.id, demoSet);
+      row.sourceKind = deviceIdSourceKindOnly(resolved);
+      row.sourceReason = resolved.reason;
+      items.push(row);
     });
-    res.json({ code: 200, data: items });
+    const activeByFacility = new Map();
+    for (const row of items) {
+      if (row.disabled || row.facilityId == null || row.facilityId === '') continue;
+      const fid = Number(row.facilityId);
+      if (!Number.isFinite(fid)) continue;
+      activeByFacility.set(fid, (activeByFacility.get(fid) || 0) + 1);
+    }
+    for (const row of items) {
+      const fid = Number(row.facilityId);
+      const siblings = Number.isFinite(fid) ? activeByFacility.get(fid) || 0 : 0;
+      row.facilitySiblingCount = siblings;
+      row.dashboardDisplayEffective =
+        !row.disabled && siblings > 0 && (row.dashboardDisplay === true || siblings === 1);
+    }
+    res.json({ code: 200, data: items, demoDeviceIds });
+  });
+
+  app.get('/api/admin/devices/probe', requireAuth('admin'), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const deviceId = String(req.query.deviceId || '').trim();
+    if (!/^\d{6,24}$/.test(deviceId)) {
+      return res.status(400).json({ code: 400, msg: 'deviceId は6〜24桁の数字です' });
+    }
+    const demoSet = new Set(getKnownDemoDeviceIds());
+    let buildicsHasLiveData = null;
+    try {
+      const db = getFirestore();
+      const apiKey = await getBuildicsApiKeyForLedger(db, req.user.orgId);
+      if (apiKey) {
+        const probe = await probeBuildicsDeviceHasLiveData(apiKey, deviceId);
+        if (probe.status === 'ok') buildicsHasLiveData = true;
+        else if (probe.status === 'no_data') buildicsHasLiveData = false;
+      }
+    } catch (e) {
+      console.error('devices/probe', e);
+    }
+    const resolved = resolveDeviceIdSourceKind(deviceId, demoSet, { buildicsHasLiveData });
+    res.json({
+      code: 200,
+      deviceId,
+      sourceKind: deviceIdSourceKindOnly(resolved),
+      sourceReason: resolved.reason,
+      buildicsHasLiveData,
+      buildicsProbed: buildicsHasLiveData !== null,
+    });
   });
 
   app.post('/api/admin/devices', requireAuth('admin'), async (req, res) => {
@@ -1092,16 +1159,57 @@ function createApiApp() {
     if (facErr) return res.status(400).json({ code: 400, msg: facErr });
     const ref = db.collection('devices').doc(String(deviceId));
     const cur = await ref.get();
-    if (cur.exists) return res.status(409).json({ code: 409, msg: 'deviceId が既に存在します' });
+    const fidNum = Number(facilityId);
+    const orgSnap = await db.collection('devices').where('orgId', '==', req.user.orgId).get();
+    let activeAtFacility = 0;
+    orgSnap.forEach((doc) => {
+      const d = doc.data() || {};
+      if (d.disabled === true) return;
+      if (Number(d.facilityId) !== fidNum) return;
+      if (cur.exists && doc.id === cur.id) return;
+      activeAtFacility += 1;
+    });
+    const dashboardDisplay = activeAtFacility === 0;
+
+    if (cur.exists) {
+      const existing = cur.data() || {};
+      if (existing.orgId !== req.user.orgId) {
+        return res.status(409).json({ code: 409, msg: 'deviceId が既に存在します' });
+      }
+      if (deviceLedgerAllowsRelink(existing)) {
+        const facErr = await assertDeviceFacilityAllowed(db, req.user.orgId, facilityId);
+        if (facErr) return res.status(400).json({ code: 400, msg: facErr });
+        await ref.update({
+          label: label != null && String(label).trim() !== '' ? String(label).slice(0, 200) : existing.label || '',
+          facilityId: fidNum,
+          disabled: false,
+          dashboardDisplay,
+          updatedAt: Date.now(),
+        });
+        if (dashboardDisplay) {
+          await setExclusiveDashboardDisplay(db, req.user.orgId, fidNum, ref.id);
+        }
+        await appendDeviceAudit(req.user, 'device.relink', {
+          deviceId: ref.id,
+          facilityId: fidNum,
+        });
+        return res.json({ code: 200, deviceId: ref.id, relinked: true });
+      }
+      return res.status(409).json({ code: 409, msg: 'deviceId が既に存在します' });
+    }
     await ref.set({
       orgId: req.user.orgId,
       label: label || '',
-      facilityId: Number(facilityId),
+      facilityId: fidNum,
       disabled: false,
+      dashboardDisplay,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       createdBy: req.user.uid,
     });
+    if (dashboardDisplay) {
+      await setExclusiveDashboardDisplay(db, req.user.orgId, fidNum, ref.id);
+    }
     await appendDeviceAudit(req.user, 'device.create', {
       deviceId: ref.id,
       facilityId: Number(facilityId),
@@ -1149,21 +1257,46 @@ function createApiApp() {
       }
     }
 
+    const orgSnap = await db.collection('devices').where('orgId', '==', oid).get();
+    const activeCountByFacility = new Map();
+    orgSnap.forEach((doc) => {
+      const d = doc.data() || {};
+      if (d.disabled === true) return;
+      const fid = Number(d.facilityId);
+      if (!Number.isFinite(fid)) return;
+      activeCountByFacility.set(fid, (activeCountByFacility.get(fid) || 0) + 1);
+    });
+    const bulkAddsByFacility = new Map();
+
     const batch = db.batch();
     const now = Date.now();
     for (const it of items) {
+      const fid = Number(it.facilityId);
       const ref = db.collection('devices').doc(String(it.deviceId));
+      const existing = activeCountByFacility.get(fid) || 0;
+      const pending = bulkAddsByFacility.get(fid) || 0;
+      const dashboardDisplay = existing + pending === 0;
+      bulkAddsByFacility.set(fid, pending + 1);
       batch.set(ref, {
         orgId: oid,
         label: it.label || '',
-        facilityId: Number(it.facilityId),
+        facilityId: fid,
         disabled: false,
+        dashboardDisplay,
         createdAt: now,
         updatedAt: now,
         createdBy: req.user.uid,
       });
     }
     await batch.commit();
+    for (const [fid, count] of bulkAddsByFacility) {
+      if (count > 0 && (activeCountByFacility.get(fid) || 0) === 0) {
+        const first = items.find((it) => Number(it.facilityId) === fid);
+        if (first) {
+          await setExclusiveDashboardDisplay(db, oid, fid, String(first.deviceId));
+        }
+      }
+    }
     await appendDeviceAudit(req.user, 'device.bulk_create', {
       count: items.length,
       deviceIds: items.map((it) => String(it.deviceId)),
@@ -1180,18 +1313,75 @@ function createApiApp() {
     if (!cur.exists || cur.data().orgId !== req.user.orgId) {
       return res.status(404).json({ code: 404, msg: '見つかりません' });
     }
-    const patch = {};
-    if (req.body.label != null) patch.label = String(req.body.label).slice(0, 200);
-    if (req.body.facilityId != null) {
-      const newFid = Number(req.body.facilityId);
-      const facErr = await assertDeviceFacilityAllowed(db, req.user.orgId, newFid);
-      if (facErr) return res.status(400).json({ code: 400, msg: facErr });
-      patch.facilityId = newFid;
+    const existing = cur.data() || {};
+    const oldFid = Number(existing.facilityId);
+
+    if (req.body.dashboardDisplay === true) {
+      if (existing.disabled === true) {
+        return res.status(400).json({ code: 400, msg: '解除済みデバイスは表示指定できません' });
+      }
+      const fid = Number(existing.facilityId);
+      if (!Number.isFinite(fid)) {
+        return res.status(400).json({ code: 400, msg: '場所に紐付けてから指定してください' });
+      }
+      try {
+        await setExclusiveDashboardDisplay(db, req.user.orgId, fid, deviceId);
+      } catch (e) {
+        if (e.code === 'NOT_FOUND') {
+          return res.status(404).json({ code: 404, msg: '見つかりません' });
+        }
+        throw e;
+      }
+      await appendDeviceAudit(req.user, 'device.dashboard_display', { deviceId, facilityId: fid });
+      return res.json({ code: 200 });
     }
-    if (req.body.disabled != null) patch.disabled = !!req.body.disabled;
+
+    const patch = {};
+    if (req.body.unlink === true) {
+      patch.disabled = true;
+      patch.facilityId = FieldValue.delete();
+      patch.dashboardDisplay = FieldValue.delete();
+    } else {
+      if (req.body.label != null) patch.label = String(req.body.label).slice(0, 200);
+      if (req.body.facilityId != null) {
+        const newFid = Number(req.body.facilityId);
+        const facErr = await assertDeviceFacilityAllowed(db, req.user.orgId, newFid);
+        if (facErr) return res.status(400).json({ code: 400, msg: facErr });
+        patch.facilityId = newFid;
+        const orgSnap = await db.collection('devices').where('orgId', '==', req.user.orgId).get();
+        let activeAtNew = 0;
+        orgSnap.forEach((doc) => {
+          if (doc.id === deviceId) return;
+          const d = doc.data() || {};
+          if (d.disabled === true) return;
+          if (Number(d.facilityId) === newFid) activeAtNew += 1;
+        });
+        patch.dashboardDisplay = activeAtNew === 0;
+      }
+      if (req.body.disabled != null) patch.disabled = !!req.body.disabled;
+    }
     patch.updatedAt = Date.now();
     await ref.update(patch);
-    await appendDeviceAudit(req.user, 'device.patch', { deviceId, patch });
+
+    if (req.body.unlink === true && Number.isFinite(oldFid)) {
+      await ensureDashboardDisplayIfLonely(db, req.user.orgId, oldFid);
+    }
+    if (req.body.facilityId != null) {
+      const newFid = Number(req.body.facilityId);
+      if (patch.dashboardDisplay === true) {
+        await setExclusiveDashboardDisplay(db, req.user.orgId, newFid, deviceId);
+      }
+      await ensureDashboardDisplayIfLonely(db, req.user.orgId, newFid);
+      if (Number.isFinite(oldFid) && oldFid !== newFid) {
+        await ensureDashboardDisplayIfLonely(db, req.user.orgId, oldFid);
+      }
+    }
+
+    const auditAction = req.body.unlink === true ? 'device.unlink' : 'device.patch';
+    await appendDeviceAudit(req.user, auditAction, {
+      deviceId,
+      ...(req.body.unlink === true ? { unlink: true } : { patch }),
+    });
     res.json({ code: 200 });
   });
 
@@ -1204,8 +1394,12 @@ function createApiApp() {
     if (!cur.exists || cur.data().orgId !== req.user.orgId) {
       return res.status(404).json({ code: 404, msg: '見つかりません' });
     }
-    await ref.set({ disabled: true, updatedAt: Date.now() }, { merge: true });
-    await appendDeviceAudit(req.user, 'device.disable', { deviceId });
+    await ref.update({
+      disabled: true,
+      facilityId: FieldValue.delete(),
+      updatedAt: Date.now(),
+    });
+    await appendDeviceAudit(req.user, 'device.unlink', { deviceId });
     res.json({ code: 200 });
   });
 
@@ -1354,6 +1548,53 @@ function createApiApp() {
       buildicsApiKeyUpdated: keyPatch.action === 'set' || keyPatch.action === 'clear',
     });
     res.json({ code: 200 });
+  });
+
+  app.post('/api/admin/org-settings/buildics-test', requireAuth('admin'), async (req, res) => {
+    applyCors(res, corsHeaders(req));
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const db = getFirestore();
+    let apiKey = '';
+    /** @type {'input' | 'org' | 'env'} */
+    let keySource = 'env';
+
+    const rawInput = body.buildicsApiKey;
+    if (rawInput != null && String(rawInput).trim()) {
+      const keyPatch = normalizeBuildicsApiKeyPatch({ buildicsApiKey: rawInput });
+      if (keyPatch.action === 'error') {
+        return res.status(400).json({ code: 400, msg: keyPatch.msg });
+      }
+      if (keyPatch.action === 'set') {
+        apiKey = keyPatch.value;
+        keySource = 'input';
+      }
+    } else {
+      const orgSnap = await db.collection('orgs').doc(req.user.orgId).get();
+      const orgKey =
+        orgSnap.exists && orgSnap.data()
+          ? String(orgSnap.data().buildicsApiKey || '').trim()
+          : '';
+      const envKey = String(process.env.BUILDICS_API_KEY || '').trim();
+      if (orgKey) {
+        apiKey = orgKey;
+        keySource = 'org';
+      } else if (envKey) {
+        apiKey = envKey;
+        keySource = 'env';
+      }
+    }
+
+    const result = await testBuildicsApiKey(apiKey);
+    const httpStatus = result.ok ? 200 : result.status === 'no_key' ? 400 : 502;
+    res.status(httpStatus).json({
+      code: httpStatus,
+      ok: result.ok,
+      status: result.status,
+      message: result.message,
+      keySource: apiKey ? keySource : null,
+      upstreamCode: result.upstreamCode,
+      httpStatus: result.httpStatus,
+    });
   });
 
   app.get('/api/admin/platform/orgs', requireAuth(['superadmin']), async (req, res) => {

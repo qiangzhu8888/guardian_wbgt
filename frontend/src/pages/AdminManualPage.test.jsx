@@ -21,5 +21,8 @@ describe('AdminManualPage', () => {
     expect(html).toContain('スマホで開く');
     expect(html).toContain('58px');
     expect(html).toContain('270px');
+    expect(html).toContain('通信テスト');
+    expect(html).toContain('ダッシュボード');
+    expect(html).toContain('表示に使う');
   });
 });

@@ -6,7 +6,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const frontendDir = resolve(__dirname, '../frontend');
 
 export default defineConfig({
-  testDir: './functional/e2e',
+  testDir: './functional',
+  testMatch: ['e2e/**/*.spec.js', 'api/**/*.spec.js'],
   timeout: 60_000,
   expect: {
     timeout: 15_000,

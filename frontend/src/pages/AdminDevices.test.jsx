@@ -6,7 +6,10 @@ vi.mock('../lib/authSession', () => ({
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: async () => ({ data: [] }),
+        json: async () => ({
+          data: [],
+          demoDeviceIds: ['350976658106130'],
+        }),
       });
     }
     if (String(url).includes('/facilities')) {
@@ -47,5 +50,17 @@ describe('AdminDevices', () => {
     expect(html).toContain('監視地点（手順 1）');
     expect(html).toContain('href="/admin/facilities"');
     expect(html).toContain('場所を登録');
+  });
+
+  it('一覧ヘッダに紐付け解除の操作列がある', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <AdminDevices />
+      </MemoryRouter>,
+    );
+    expect(html).toContain('紐付け解除');
+    expect(html).toContain('操作');
+    expect(html).toContain('種別');
+    expect(html).toContain('ダッシュボード表示');
   });
 });

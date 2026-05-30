@@ -200,8 +200,11 @@ export default function AdminManualPage() {
               <strong>自動更新間隔をサーバー既定に戻す</strong>を押すと、組織側の特別設定をやめてサーバー共通の既定に戻ります。
             </li>
             <li>
-              <strong>BUILDICS API キー（ある場合のみ）</strong>：組織単位でキーを登録する運用では、入力して<strong>保存</strong>
-              します。画面ではマスク表示や末尾のみ表示になっていることがあります。
+              <strong>BUILDICS API キー（ある場合のみ）</strong>：組織単位でキーを登録する運用では、新しいキーを入力して<strong>保存</strong>
+              します（変更しないときは空のままで構いません）。画面ではマスク表示や末尾のみ表示になっていることがあります。
+            </li>
+            <li>
+              <strong>通信テスト</strong>：キーを入力した直後でも、<strong>保存の前</strong>に「通信テスト」を押して BUILDICS への接続を試せます。入力欄が空のときは、すでに保存済みの組織キー（なければサーバー共通の設定）を使います。成功・失敗はその場でメッセージが出ます。
             </li>
           </ol>
           <p className="rounded-lg bg-amber-50/70 dark:bg-amber-950/35 border border-amber-200/70 dark:border-amber-900/55 px-3 py-2 text-xs mt-3">
@@ -278,14 +281,23 @@ export default function AdminManualPage() {
             <li>「登録」をする前に<strong>紐付け場所</strong>のリストで<strong>載せたい場所</strong>が選べる状態にします。</li>
             <li>
               <strong>デバイス ID</strong>
-              と<strong>表示名（あれば）</strong>を入力し、<strong>この内容で登録</strong>をクリックします。
+              を入力すると、<strong>デモ用</strong>（紫）か<strong>現場センサー</strong>（緑）かがバッジで表示されます（形式が正しい ID では、しばらく「BUILDICS 照会中…」と出ることがあります）。表示名（ラベル）は任意です。
+            </li>
+            <li>
+              <strong>この内容で登録</strong>をクリックして台帳に追加します。
             </li>
             <li>
               現場のシール読みなら<strong>QR スキャン</strong>
               が使える環境です（ブラウザのカメラ許可が必要。<strong>https</strong>{' '}
               またはローカルの検証用アドレスに限られます）。
             </li>
-            <li>すでに台帳に同じデバイス ID があるときは<strong>だめになります（重複エラー）</strong>。一覧を見直してください。</li>
+            <li>
+              すでに台帳に同じデバイス ID があるときは<strong>だめになります（重複エラー）</strong>。ただし<strong>紐付け解除済み</strong>
+              の行は、同じ ID で上のフォームから再登録できます。
+            </li>
+            <li>
+              一覧の<strong>紐付け解除</strong>で監視対象から外せます。解除済みの行は<strong>再有効化</strong>で場所を選び直せます。
+            </li>
           </ol>
 
           <p className="font-semibold text-slate-900 dark:text-white pt-4">B. CSV または JSON でたくさん登録するとき</p>
@@ -304,6 +316,9 @@ export default function AdminManualPage() {
           <ul className="list-disc list-outside pl-5 space-y-2">
             <li>
               <strong>紐付け場所</strong>のリストで<strong>ほかの場所 ID に付けかえられます。</strong>
+            </li>
+            <li>
+              <strong>ダッシュボード</strong>列：同じ場所に有効なデバイスが<strong>2台以上</strong>あるときだけ意味があります。監視画面のその地点に載せる1台を「表示に使う」で選び、選ばれた行は<strong>表示中</strong>と出ます。1台だけのときは<strong>自動（1台のみ）</strong>と表示され、切り替えは不要です。
             </li>
             <li>
               「状態」の列には<strong>有効／無効</strong>
