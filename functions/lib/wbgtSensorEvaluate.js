@@ -17,14 +17,13 @@ function calculateWBGT(T, RH) {
   return Math.round(wbgt * 10) / 10;
 }
 
-function parseDataValue(dataValue) {
-  if (!dataValue || typeof dataValue !== 'string') return null;
-  const parts = dataValue.split(',');
-  if (parts.length < 2) return null;
-  const temp = Number.parseFloat(parts[0]);
-  const humidity = Number.parseFloat(parts[1]);
-  if (!Number.isFinite(temp) || !Number.isFinite(humidity)) return null;
-  return { temp, humidity };
+const { parseBuildicsDeviceEntry, parseBuildicsMeasurements } = require('./buildicsMeasurements');
+
+function parseDataValue(dataValue, typeUnit, latestRawData) {
+  if (latestRawData != null && latestRawData !== '') {
+    return parseBuildicsDeviceEntry({ dataValue, typeUnit, latestRawData });
+  }
+  return parseBuildicsMeasurements(dataValue, typeUnit);
 }
 
 function getWBGTLevel(wbgt) {

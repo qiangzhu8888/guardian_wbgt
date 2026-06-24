@@ -46,12 +46,37 @@ function Write-NpmFileLockHintIfNeeded {
   Write-Host '  - Stop Vite dev servers, test runners, and other terminals locking tools in:' -ForegroundColor Yellow
   Write-Host ('    "{0}"' -f $pathShow) -ForegroundColor DarkGray
   Write-Host '    (rollup.exe, esbuild.exe, or rollup/esbuild *.node).' -ForegroundColor DarkGray
+  Write-Host '  - Run: .\scripts\stop-frontend-dev-processes.ps1' -ForegroundColor Yellow
   Write-Host '  - Close antivirus / pause OneDrive or cloud sync for the repo, then retry.' -ForegroundColor Yellow
   Write-Host '  - Retry after a clean install:' -ForegroundColor Yellow
   Write-Host '      .\scripts\deploy-production.ps1 -FreshFrontend -UseInstall' -ForegroundColor DarkGray
   Write-Host '      .\scripts\deploy-production.ps1 -FreshFunctions -UseInstall' -ForegroundColor DarkGray
   Write-Host '      .\scripts\run-acceptance-tests.ps1 -FreshFrontend -UseInstall' -ForegroundColor DarkGray
   Write-Host '  - On Windows the script may delete node_modules and retry (including npm install on the last try if npm ci was used).' -ForegroundColor Yellow
+}
+
+function Invoke-StopRepoDevProcessesIfPresent {
+  param([Parameter(Mandatory)][string] $WorkingDirectory)
+  $repoRoot = $WorkingDirectory
+  for ($i = 0; $i -lt 4; $i++) {
+    $parent = Split-Path -Parent $repoRoot -ErrorAction SilentlyContinue
+    if (-not $parent -or $parent -eq $repoRoot) { break }
+    $repoRoot = $parent
+  }
+  $stopScript = Join-Path $repoRoot 'scripts\stop-frontend-dev-processes.ps1'
+  if (-not (Test-Path -LiteralPath $stopScript)) {
+    return
+  }
+  $frontendDir = if ((Split-Path -Leaf $WorkingDirectory) -eq 'frontend') {
+    $WorkingDirectory
+  } else {
+    Join-Path $repoRoot 'frontend'
+  }
+  if (-not (Test-Path -LiteralPath $frontendDir)) {
+    return
+  }
+  Write-Host '[npm-win] stopping Vite/Playwright/node locks before node_modules cleanup' -ForegroundColor Cyan
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $stopScript -FrontendDir $frontendDir
 }
 
 function Normalize-NpmCiToInstall {
@@ -114,6 +139,7 @@ function Invoke-RobustNpm {
 
       if ($canRecover) {
         Write-Host "$LogPrefix npm file lock (EPERM/EBUSY): removing node_modules in this workspace" -ForegroundColor Yellow
+        Invoke-StopRepoDevProcessesIfPresent -WorkingDirectory $PWD.Path
         $nm = Join-Path $PWD.Path 'node_modules'
         $mayFallbackToInstall = $NpmArguments -contains 'ci'
         $removed = $false

@@ -113,12 +113,13 @@ async function main() {
     const values = String(dataValue ?? '').split(',');
     const units  = String(typeUnit  ?? '').split(',');
 
-    let temp = null, humidity = null;
+    let temp = null, humidity = null, voltage = null;
     units.forEach((u, i) => {
       const unit = u.toLowerCase().trim();
       const val  = parseFloat(values[i]);
       if (isNaN(val)) return;
-      if (unit.includes('℃') || unit.includes('°c') || unit.includes('temp')) temp = val;
+      if (unit === 'v') voltage = val;
+      else if (unit.includes('℃') || unit.includes('°c') || unit.includes('temp')) temp = val;
       else if (unit.includes('rh') || unit.includes('humidity') || unit === '%') humidity = val;
     });
 
@@ -137,6 +138,7 @@ async function main() {
       console.log('  --- WBGT 計算結果 ---');
       console.log(`  気温      : ${temp} ℃`);
       console.log(`  湿度      : ${humidity} %`);
+      if (voltage !== null) console.log(`  電圧      : ${voltage} V`);
       console.log(`  WBGT      : ${wbgt} ℃`);
       console.log(`  危険度    : ${level}`);
       console.log(`  データ経過: ${ageMin} 分前`);

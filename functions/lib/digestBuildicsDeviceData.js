@@ -34,7 +34,11 @@ function digestWorstFacilityHeat(rawList, mappings, staleMs) {
     const history = [];
 
     for (const entry of sorted) {
-      const parsed = parseDataValue(String(entry.dataValue || entry.DataValue || ''));
+      const parsed = parseDataValue(
+        String(entry.dataValue || entry.DataValue || ''),
+        entry.typeUnit ?? entry.TypeUnit,
+        entry.latestRawData ?? entry.LatestRawData,
+      );
       if (!parsed) continue;
       const wbgt = calculateWBGT(parsed.temp, parsed.humidity);
       const lt = Number(entry.latestDataTime || entry.LatestDataTime);

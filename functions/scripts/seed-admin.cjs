@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 
 const { loadFunctionsDotEnv } = require('../lib/loadLocalEnv');
 /** functions/.env → ルート/.env → functions/.env.local（後者で上書き。JWA 等は .env.local 推奨） */
@@ -124,6 +125,64 @@ function normalizeEmulatorBaseFromEnv(raw) {
   return s.replace(/\/$/, '');
 }
 
+/**
+ * @param {string} host
+ * @param {number} port
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+function probeTcpPort(host, port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port, timeout: timeoutMs }, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/** ローカル Functions エミュが TCP で待ち受けているか（fetch 前に ECONNREFUSED を分かりやすくする） */
+async function assertFunctionsEmulatorListening(baseUrl) {
+  let u;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return;
+  }
+  const host = u.hostname.toLowerCase();
+  if (host !== '127.0.0.1' && host !== 'localhost') return;
+
+  const port = u.port === '' ? (u.protocol === 'https:' ? 443 : 80) : Number(u.port);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return;
+
+  const open = await probeTcpPort(host, port);
+  if (open) return;
+
+  const emuPort = readFunctionsEmulatorPort();
+  const project = readDefaultProjectId();
+  console.error('[seed-admin] Functions エミュレータに接続できません（ECONNREFUSED）。');
+  console.error(`  試行先: ${host}:${port} （firebase.json の functions ポート: ${emuPort}）`);
+  console.error('  対処: 別ターミナルでリポジトリルートから Emulator を起動してから、再度 seed してください:');
+  console.error('    .\\scripts\\start-firebase-emulators.ps1');
+  console.error(`  起動後の API ベース例: http://127.0.0.1:${emuPort}/${project}/asia-northeast1/api`);
+  console.error('  Emulator UI: http://127.0.0.1:63140/');
+  const rawEnv = normalizeEmulatorBaseFromEnv(process.env.FUNCTIONS_EMULATOR_URL);
+  if (/wgbt-monitor/i.test(rawEnv)) {
+    console.error(
+      '  補足: functions/.env の FUNCTIONS_EMULATOR_URL に typo "wgbt-monitor" があります。',
+    );
+    console.error(`        ${project} に修正するか、行を削除して既定 URL を使ってください。`);
+  }
+  process.exit(1);
+}
+
 function emulatorBaseUrl() {
   const project = readDefaultProjectId();
   const region = process.env.FIREBASE_FUNCTIONS_REGION || 'asia-northeast1';
@@ -213,6 +272,7 @@ async function main() {
 
   const base = emulatorBaseUrl();
   assertEmulatorRequestUrl(base, '/api/auth/bootstrap');
+  await assertFunctionsEmulatorListening(base);
 
   const boot = await postBootstrap(secret, base, email, password);
 
@@ -267,27 +327,40 @@ async function main() {
   process.exit(1);
 }
 
-main().catch((e) => {
-  const msg = e && e.message ? String(e.message) : String(e);
-  console.error(msg.startsWith('[seed-admin]') ? msg : `[seed-admin] ${msg}`);
-  if (e && e.cause) {
-    console.error('[seed-admin] cause:', e.cause);
-  }
-  if (e && e.name === 'AggregateError' && Array.isArray(e.errors)) {
-    e.errors.forEach((err, i) => {
-      console.error(`[seed-admin] nested[${i}]:`, err && (err.message || err));
-    });
-  }
-  const rawHint =
-    normalizeEmulatorBaseFromEnv(process.env.FUNCTIONS_EMULATOR_URL) ||
-    `http://127.0.0.1:${readFunctionsEmulatorPort()}`;
-  console.error(
-    '接続先の確認:',
-    rewriteLocalEmuFunctionsTriplePath(expandEmulatorHostPortOnlyBase(rawHint)),
-  );
-  console.error(
-    '[seed-admin] fetch failed は多くの場合「エミュ未起動」または「ポート不一致」です。' +
-      ' firebase emulators が起動しているか、firebase.json の emulators.functions.port と FUNCTIONS_EMULATOR_URL のポートを揃えてください。',
-  );
-  process.exit(1);
-});
+module.exports = {
+  readDefaultProjectId,
+  readFunctionsEmulatorPort,
+  normalizeEmulatorBaseFromEnv,
+  expandEmulatorHostPortOnlyBase,
+  rewriteLocalEmuFunctionsTriplePath,
+  emulatorBaseUrl,
+  probeTcpPort,
+  assertFunctionsEmulatorListening,
+};
+
+if (require.main === module) {
+  main().catch((e) => {
+    const msg = e && e.message ? String(e.message) : String(e);
+    console.error(msg.startsWith('[seed-admin]') ? msg : `[seed-admin] ${msg}`);
+    if (e && e.cause) {
+      console.error('[seed-admin] cause:', e.cause);
+    }
+    if (e && e.name === 'AggregateError' && Array.isArray(e.errors)) {
+      e.errors.forEach((err, i) => {
+        console.error(`[seed-admin] nested[${i}]:`, err && (err.message || err));
+      });
+    }
+    const rawHint =
+      normalizeEmulatorBaseFromEnv(process.env.FUNCTIONS_EMULATOR_URL) ||
+      `http://127.0.0.1:${readFunctionsEmulatorPort()}`;
+    console.error(
+      '接続先の確認:',
+      rewriteLocalEmuFunctionsTriplePath(expandEmulatorHostPortOnlyBase(rawHint)),
+    );
+    console.error(
+      '[seed-admin] fetch failed は多くの場合「エミュ未起動」または「ポート不一致」です。' +
+        ' firebase emulators が起動しているか、firebase.json の emulators.functions.port と FUNCTIONS_EMULATOR_URL のポートを揃えてください。',
+    );
+    process.exit(1);
+  });
+}

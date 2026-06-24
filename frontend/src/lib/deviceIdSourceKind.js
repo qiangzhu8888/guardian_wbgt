@@ -1,19 +1,16 @@
-import facilitiesFallback from '../../public/config/facilities.json';
 import { looksLikePlaceholderDeviceId } from './deviceIdPlaceholders';
 
 /** @typedef {'demo' | 'live' | 'unknown'} DeviceIdSourceKind */
 /** @typedef {'bundled' | 'placeholder' | 'no_buildics_data' | 'buildics_verified' | null} DeviceIdSourceReason */
 
+/** 検証・サンプル専用（静的 facilities.json の ID は実機でも使われ得るため含めない） */
 const ADDITIONAL_KNOWN_DEMO_DEVICE_IDS = ['350976658106199'];
 
 /**
  * @param {string[] | undefined} fromApi
  */
 export function buildDemoDeviceIdSet(fromApi) {
-  const fromConfig = (facilitiesFallback.deviceMappings || []).map((m) =>
-    String(m.deviceId || '').trim(),
-  );
-  return new Set([...fromConfig, ...ADDITIONAL_KNOWN_DEMO_DEVICE_IDS, ...(fromApi || [])]);
+  return new Set([...ADDITIONAL_KNOWN_DEMO_DEVICE_IDS, ...(fromApi || [])]);
 }
 
 /**
@@ -27,18 +24,21 @@ export function resolveDeviceIdSourceKind(deviceId, demoIdSet, opts = {}) {
   if (!/^\d{6,24}$/.test(id)) {
     return { kind: 'unknown', reason: null };
   }
+  const probed = opts.buildicsHasLiveData;
   if (demoIdSet.has(id)) {
+    if (probed === true) {
+      return { kind: 'live', reason: 'buildics_verified' };
+    }
     return { kind: 'demo', reason: 'bundled' };
   }
   if (looksLikePlaceholderDeviceId(id)) {
     return { kind: 'demo', reason: 'placeholder' };
   }
-  const probed = opts.buildicsHasLiveData;
   if (probed === true) {
     return { kind: 'live', reason: 'buildics_verified' };
   }
   if (probed === false) {
-    return { kind: 'demo', reason: 'no_buildics_data' };
+    return { kind: 'live', reason: 'no_buildics_data' };
   }
   return { kind: 'live', reason: null };
 }
@@ -59,7 +59,10 @@ export function deviceSourceHint(reason, kind) {
     return 'テスト用・ダミーとみなせる ID のため、デモ扱いで表示します。';
   }
   if (kind === 'demo' && reason === 'no_buildics_data') {
-    return 'BUILDICS に直近の実測が見つからないため、デモ扱いとします（実機 ID の誤入力の可能性があります）。';
+    return 'BUILDICS に直近の実測が見つかりませんでした（未確認）。';
+  }
+  if (kind === 'live' && reason === 'no_buildics_data') {
+    return 'BUILDICS に直近 48 時間の実測は見つかりませんでした。形式は正しい ID です。登録後にデータが届くか確認してください。';
   }
   if (kind === 'live' && reason === 'buildics_verified') {
     return 'BUILDICS で直近の実測データを確認しました。現場センサーとして扱います。';

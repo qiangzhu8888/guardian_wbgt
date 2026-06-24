@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { calculateWBGT, getWBGTLevel, parseDataValue } from '../lib/wbgt';
+import { calculateWBGT, getWBGTLevel } from '../lib/wbgt';
+import { parseBuildicsMeasurements, resolveDeviceVoltage } from '../lib/buildicsMeasurements';
+import { resolveLastKnownBattery } from '../lib/lastKnownBattery';
+import { buildApGatewayStatusBody, buildGatewayBatteryByDeviceId } from '../lib/gatewayBattery';
 import { buildBuildicsProxyUrl } from '../lib/publicApi';
 import { buildQueryPlan } from '../lib/buildicsQueryPlan';
 
@@ -60,9 +63,15 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
   const [lastFetched, setLastFetched] = useState(null);
   const abortRef = useRef(null);
   const failStreakRef = useRef(0);
+  const batteryCacheRef = useRef(new Map());
 
   const fetchData = useCallback(async () => {
-    if (!deviceMappings || deviceMappings.length === 0) return;
+    if (!deviceMappings || deviceMappings.length === 0) {
+      setSensorData({});
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
@@ -70,16 +79,23 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
 
     try {
       const now = Date.now();
-      const { chunks } = buildQueryPlan(deviceMappings, now, historyHours, chunkSize);
+      const { chunks, latestChunks, uniqueDeviceIds } = buildQueryPlan(
+        deviceMappings,
+        now,
+        historyHours,
+        chunkSize,
+      );
 
       let rawList = [];
+      let snapshotList = [];
+      let gatewayList = [];
 
-      for (const chunk of chunks) {
+      async function fetchBuildicsEndpoint(endpoint, body) {
         let lastHttpErr;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
-          if (signal.aborted) return;
+          if (signal.aborted) return null;
           try {
-            const res = await callBuildics('/common/device/queryDeviceData', chunk, signal, orgSlug);
+            const res = await callBuildics(endpoint, body, signal, orgSlug);
             if (!res.ok) {
               lastHttpErr = new Error(`HTTP ${res.status}`);
               await sleep(400 * 2 ** attempt);
@@ -92,35 +108,87 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
               await sleep(400 * 2 ** attempt);
               continue;
             }
-            const list = json.data ?? json.Data ?? [];
-            rawList = rawList.concat(list);
-            lastHttpErr = null;
-            break;
+            return json.data ?? json.Data ?? [];
           } catch (err) {
-            if (err.name === 'AbortError') return;
+            if (err.name === 'AbortError') return null;
             lastHttpErr = err;
             await sleep(400 * 2 ** attempt);
           }
         }
-        if (lastHttpErr) throw lastHttpErr;
+        throw lastHttpErr;
+      }
+
+      async function fetchChunkList(chunkBodies) {
+        const merged = [];
+        for (const chunk of chunkBodies) {
+          const list = await fetchBuildicsEndpoint('/common/device/queryDeviceData', chunk);
+          if (list == null) return null;
+          merged.push(...list);
+        }
+        return merged;
+      }
+
+      rawList = (await fetchChunkList(chunks)) ?? [];
+      if (signal.aborted) return;
+
+      snapshotList = (await fetchChunkList(latestChunks)) ?? [];
+      if (signal.aborted) return;
+
+      try {
+        gatewayList =
+          (await fetchBuildicsEndpoint(
+            '/common/apgateway/status',
+            buildApGatewayStatusBody(now),
+          )) ?? [];
+      } catch {
+        gatewayList = [];
+      }
+      if (signal.aborted) return;
+
+      const gatewayBatteryByDevice = buildGatewayBatteryByDeviceId(gatewayList, uniqueDeviceIds);
+
+      const snapshotByDevice = new Map();
+      for (const row of snapshotList) {
+        const id = String(row.deviceId || row.DeviceId || '').trim();
+        if (!id) continue;
+        const prev = snapshotByDevice.get(id);
+        const ts = Number(row.latestDataTime || row.LatestDataTime);
+        const prevTs = prev ? Number(prev.latestDataTime || prev.LatestDataTime) : NaN;
+        if (!prev || (Number.isFinite(ts) && ts >= prevTs)) {
+          snapshotByDevice.set(id, row);
+        }
       }
 
       const staleMs = staleMinutes * 60 * 1000;
       const result = {};
       for (const mapping of deviceMappings) {
-        const entries = rawList.filter((d) => d.deviceId === mapping.deviceId);
+        const deviceId = String(mapping.deviceId || '').trim();
+        const entries = rawList.filter(
+          (d) => String(d.deviceId || d.DeviceId || '').trim() === deviceId,
+        );
         if (entries.length === 0) {
           result[mapping.facilityId] = { status: 'no_data' };
           continue;
         }
 
         const sorted = [...entries].sort(
-          (a, b) => Number(a.latestDataTime) - Number(b.latestDataTime),
+          (a, b) => Number(a.latestDataTime || a.LatestDataTime) - Number(b.latestDataTime || b.LatestDataTime),
+        );
+
+        const snapshot = snapshotByDevice.get(deviceId);
+        const voltageSourceEntries = snapshot ? [...sorted, snapshot] : sorted;
+        const freshVoltage = resolveDeviceVoltage(voltageSourceEntries);
+        const freshPercent = gatewayBatteryByDevice.get(deviceId) ?? null;
+        const battery = resolveLastKnownBattery(
+          orgSlug,
+          mapping.facilityId,
+          { freshVoltage, freshPercent },
+          batteryCacheRef.current,
         );
 
         const history = sorted
           .map((entry) => {
-            const parsed = parseDataValue(entry.dataValue);
+            const parsed = parseBuildicsMeasurements(entry.dataValue, entry.typeUnit);
             if (!parsed) return null;
             const { temp, humidity } = parsed;
             const wbgt = calculateWBGT(temp, humidity);
@@ -131,6 +199,7 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
               wbgt,
               temp,
               humidity,
+              voltage: null,
               level: getWBGTLevel(wbgt),
             };
           })
@@ -142,6 +211,9 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
         }
 
         const latest = history[history.length - 1];
+        if (Number.isFinite(battery.voltage)) {
+          latest.voltage = battery.voltage;
+        }
         const updatedAt = new Date(latest.time);
         const isStale = Date.now() - updatedAt.getTime() > staleMs;
 
@@ -149,6 +221,10 @@ export function useBuildicsData(deviceMappings, intervalMs = 60000, pollingOpts 
           status: isStale ? 'stale' : 'ok',
           temp: latest.temp,
           humidity: latest.humidity,
+          voltage: battery.voltage,
+          batteryPercent: battery.batteryPercent,
+          batteryCached: battery.batteryCached,
+          batterySource: battery.batterySource,
           wbgt: latest.wbgt,
           level: isStale ? '通信異常' : latest.level,
           updatedAt,

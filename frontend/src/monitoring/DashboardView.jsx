@@ -17,11 +17,17 @@ import {
   wbgtChartYDomain,
   wbgtYReferenceBandAreas,
 } from '../lib/jwaDashboardPreviewSeries';
+import { formatFacilityAmbientLine } from '../lib/facilityAmbientDisplay';
 import { postJwaHourlyForecastBatch } from '../lib/jwaWbgtApi';
 import { PRODUCT_LANDING_PATH } from '../lib/productLandingCta';
 import { useDarkClass } from '../hooks/useDarkClass';
 import { getLevelStyle } from './levelStyles';
 import { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
+import BatteryLevelIndicator from './BatteryLevelIndicator.jsx';
+import { resolveBatteryDisplayLevel } from '../lib/batteryLevel';
+import { isUsableFacilityLatLng } from '../lib/geoFormat';
+import { describeFacilityCoordsIssue, formatPublicApiError } from '../lib/geoReferenceMessages';
+import GeoReferenceNotice from './GeoReferenceNotice.jsx';
 import { WbgtGuidelinesPanel } from './WbgtGuidelinesPanel.jsx';
 
 /** @param {string} idStr */
@@ -140,18 +146,20 @@ export function DashboardView({
   const topFacility = facilities.find((f) => f.level !== '通信異常' && f.level !== 'ほぼ安全');
 
   const jwaBatchKey = facilities
-    .filter((f) => Number.isFinite(Number(f.lat)) && Number.isFinite(Number(f.lng)))
+    .filter((f) => isUsableFacilityLatLng(f.lat, f.lng))
     .map((f) => `${String(f.id)}:${Number(f.lat)}:${Number(f.lng)}`)
     .sort()
     .join('|');
 
   const [jwaMeshById, setJwaMeshById] = useState({});
   const [jwaMeshStatus, setJwaMeshStatus] = useState('idle');
+  const [jwaMeshError, setJwaMeshError] = useState('');
 
   useEffect(() => {
     if (!jwaBatchKey) {
       setJwaMeshById({});
       setJwaMeshStatus('idle');
+      setJwaMeshError('');
       return;
     }
     const jwaRows = jwaBatchKey.split('|').map((seg) => {
@@ -161,6 +169,7 @@ export function DashboardView({
 
     let cancelled = false;
     setJwaMeshStatus('loading');
+    setJwaMeshError('');
 
     (async () => {
       const jwaR = await postJwaHourlyForecastBatch(jwaRows);
@@ -168,6 +177,7 @@ export function DashboardView({
 
       if (!jwaR.ok) {
         setJwaMeshById({});
+        setJwaMeshError(formatPublicApiError(jwaR.status, jwaR.msg, 'jwa'));
         if (jwaR.status === 503) {
           setJwaMeshStatus('unconfigured');
         } else {
@@ -181,6 +191,7 @@ export function DashboardView({
       }
       setJwaMeshById(map);
       setJwaMeshStatus('ok');
+      setJwaMeshError('');
     })();
     return () => {
       cancelled = true;
@@ -227,12 +238,26 @@ export function DashboardView({
 
   return (
     <div className="space-y-5">
-      {error && (
-        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 flex items-center gap-2 dark:bg-red-950/40 dark:border-red-800/70">
-          <span className="text-red-500 text-lg">⚠</span>
-          <p className="text-sm text-red-700 dark:text-red-200">センサー通信エラー: {error}</p>
-        </div>
-      )}
+      {error ? (
+        <GeoReferenceNotice variant="error" title="センサーデータの取得エラー" message={error} />
+      ) : null}
+
+      {jwaMeshStatus === 'unconfigured' && jwaMeshError ? (
+        <GeoReferenceNotice
+          variant="warn"
+          title="JWA WBGT 予測 API が未設定"
+          message={jwaMeshError}
+          statusCode={503}
+        />
+      ) : null}
+
+      {jwaMeshStatus === 'error' && jwaMeshError ? (
+        <GeoReferenceNotice
+          variant="error"
+          title="ダッシュボードの WBGT 予測一括取得に失敗"
+          message={jwaMeshError}
+        />
+      ) : null}
 
       {topFacility && (
         <div
@@ -296,6 +321,15 @@ export function DashboardView({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {facilities.map((f) => {
           const style = getLevelStyle(f.level);
+          const commsBad = f.level === '通信異常';
+          const showBattery =
+            !f.isMock &&
+            (Number.isFinite(Number(f.batteryPercent)) || Number.isFinite(Number(f.voltage)));
+          const batteryLevel = showBattery
+            ? resolveBatteryDisplayLevel({ voltage: f.voltage, batteryPercent: f.batteryPercent })
+            : null;
+          const batteryCached = Boolean(f.batteryCached || f.voltageCached);
+          const coordsIssue = !f.isMock ? describeFacilityCoordsIssue(f.lat, f.lng) : null;
           return (
             <button
               key={f.id}
@@ -309,6 +343,16 @@ export function DashboardView({
                   <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                     {f.isMock ? <MockBadge /> : <LiveBadge />}
                     <LevelBadge level={f.level} />
+                    {showBattery ? (
+                      <BatteryLevelIndicator
+                        voltage={f.voltage}
+                        batteryPercent={f.batteryPercent}
+                        compact
+                        dimmed={commsBad}
+                        cached={batteryCached}
+                        source={f.batterySource}
+                      />
+                    ) : null}
                   </div>
                   <h3 className="font-bold text-gray-800 dark:text-slate-100 text-sm leading-tight truncate">{f.name}</h3>
                 </div>
@@ -325,24 +369,44 @@ export function DashboardView({
                 ) : null}
               </div>
               <p className="text-xs text-gray-400 dark:text-slate-500 mb-3">
-                {f.weatherIcon} {f.weather}　{f.temp}℃　湿度 {f.humidity}%
+                {formatFacilityAmbientLine(f)}
               </p>
 
               <div className="mb-3">
                 <p className="text-xs text-gray-400 dark:text-slate-500 mb-0.5">
                   {f.isMock ? '現在の WBGT（デモ）' : '現在の WBGT（現場センサーに基づく推定値）'}
                 </p>
-                <p className={`text-4xl font-extrabold leading-none ${style.text}`}>
-                  {f.wbgt}
-                  <span className="text-base font-normal text-gray-400 dark:text-slate-500 ml-1">℃</span>
-                </p>
+                <div className="flex items-end justify-between gap-2">
+                  <p className={`text-4xl font-extrabold leading-none ${style.text}`}>
+                    {f.wbgt}
+                    <span className="text-base font-normal text-gray-400 dark:text-slate-500 ml-1">℃</span>
+                  </p>
+                  {batteryLevel ? (
+                    <p
+                      className={`text-sm font-bold tabular-nums pb-0.5 ${commsBad || batteryCached ? 'opacity-70' : ''} text-slate-600 dark:text-slate-300`}
+                      title={batteryCached ? '前回取得した電池残量（参考）' : '電池残量（参考）'}
+                    >
+                      <span aria-hidden="true">🔋 </span>
+                      {f.batterySource === 'gateway' && !batteryCached ? '' : '約'}
+                      {batteryLevel.percent}%
+                    </p>
+                  ) : null}
+                </div>
               </div>
+
+              {coordsIssue && coordsIssue.kind !== 'ok' ? (
+                <div className="mb-3">
+                  <GeoReferenceNotice
+                    variant="warn"
+                    title={coordsIssue.title}
+                    message={coordsIssue.message}
+                  />
+                </div>
+              ) : null}
 
               {(() => {
                 const geo =
-                  Number.isFinite(Number(f.lat)) &&
-                  Number.isFinite(Number(f.lng)) &&
-                  jwaMeshStatus !== 'unconfigured';
+                  isUsableFacilityLatLng(f.lat, f.lng) && jwaMeshStatus !== 'unconfigured';
                 const mockPv =
                   f.isMock && Array.isArray(f.mockJwaPreview) && f.mockJwaPreview.length > 0;
                 if (geo) {
@@ -357,14 +421,18 @@ export function DashboardView({
                       {jwaMeshStatus === 'loading' ? (
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">取得中…</p>
                       ) : jwaMeshStatus === 'error' ? (
-                        <p className="text-[11px] text-sky-900/80 dark:text-sky-300/90 mt-1">取得に失敗しました</p>
+                        <p className="text-[11px] text-red-800/90 dark:text-red-200/90 mt-1 leading-snug">
+                          {jwaMeshError || '取得に失敗しました'}
+                        </p>
                       ) : (
                         (() => {
                           const row = jwaMeshById[String(f.id)];
                           if (!row || row.ok === false) {
                             return (
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                                {row && typeof row.msg === 'string' ? row.msg : '—'}
+                              <p className="text-[11px] text-amber-900/90 dark:text-amber-200/90 mt-1 leading-snug">
+                                {row && typeof row.msg === 'string'
+                                  ? row.msg
+                                  : 'この地点の予測を取得できませんでした'}
                               </p>
                             );
                           }

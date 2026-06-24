@@ -51,6 +51,29 @@ describe('mergeFacilities', () => {
     expect(row?.venueCategory).toBe('factory');
   });
 
+  it('stale keeps voltage and sensor readings for battery display', () => {
+    const sensorData = {
+      2: {
+        status: 'stale',
+        wbgt: 28,
+        level: '警戒',
+        temp: 30,
+        humidity: 50,
+        batteryPercent: 60,
+        batteryCached: false,
+        batterySource: 'gateway',
+        updatedStr: '09:00',
+        history: [],
+      },
+    };
+    const out = mergeFacilities(sensorData, mock, maps);
+    const row = out.find((f) => f.id === 2);
+    expect(row?.level).toBe('通信異常');
+    expect(row?.batteryPercent).toBe(60);
+    expect(row?.temp).toBe(30);
+    expect(row?.humidity).toBe(50);
+  });
+
   it('preserves installationPhotoUrl on live merge', () => {
     const withPhoto = [{ ...mock[0], installationPhotoUrl: 'https://firebasestorage.googleapis.com/v0/b/x/o/y' }];
     const sensorData = {

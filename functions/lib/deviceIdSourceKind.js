@@ -32,7 +32,12 @@ function resolveDeviceIdSourceKind(deviceId, knownDemoIds, opts = {}) {
     return { kind: 'unknown', reason: null };
   }
 
+  const probed = opts.buildicsHasLiveData;
+
   if (isKnownDemoDeviceId(id, knownDemoIds)) {
+    if (probed === true) {
+      return { kind: 'live', reason: 'buildics_verified' };
+    }
     return { kind: 'demo', reason: 'bundled' };
   }
 
@@ -40,12 +45,11 @@ function resolveDeviceIdSourceKind(deviceId, knownDemoIds, opts = {}) {
     return { kind: 'demo', reason: 'placeholder' };
   }
 
-  const probed = opts.buildicsHasLiveData;
   if (probed === true) {
     return { kind: 'live', reason: 'buildics_verified' };
   }
   if (probed === false) {
-    return { kind: 'demo', reason: 'no_buildics_data' };
+    return { kind: 'live', reason: 'no_buildics_data' };
   }
 
   return { kind: 'live', reason: null };

@@ -51,6 +51,7 @@ const {
   deleteManagedFacilityInstallationPhoto,
 } = require('./lib/facilityPhotoStorage');
 const { geocodeAddressWithGsi } = require('./lib/gsiGeocode');
+const { latLonRejectMessage } = require('./lib/geoLatLng');
 const { signAccess, signRefresh, verifyAccess, verifyRefresh } = require('./lib/jwtEnv');
 const jwaWbgt = require('./lib/jwaWbgtClient');
 const jmaHeatAdvisory = require('./lib/jmaHeatAdvisoryClient');
@@ -61,7 +62,7 @@ const {
   resolveDeviceIdSourceKind,
   deviceIdSourceKindOnly,
 } = require('./lib/deviceIdSourceKind');
-const { probeBuildicsDeviceHasLiveData } = require('./lib/probeBuildicsDevice');
+const { probeBuildicsDeviceHasLiveData, PROBE_HISTORY_HOURS } = require('./lib/probeBuildicsDevice');
 const { testBuildicsApiKey } = require('./lib/testBuildicsApiKey');
 const {
   pickDashboardDeviceMappings,
@@ -95,12 +96,8 @@ function facilityToMockCard(id, data) {
     wbgt: 28,
     level: '注意',
     wbgtNext: 29,
-    weather: '—',
-    weatherIcon: '📍',
-    temp: 30,
-    humidity: 65,
     updated: '—',
-    isMock: true,
+    isMock: false,
     placementType: toStoredFacilityPlacementType(data.placementType),
     venueCategory: toStoredFacilityVenueCategory(data.venueCategory),
     ...(data.address ? { address: String(data.address).slice(0, 500) } : {}),
@@ -365,7 +362,8 @@ function createApiApp() {
     }
     const ll = jwaWbgt.parseLatLonQuery(req.query);
     if (!ll) {
-      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+      const msg = latLonRejectMessage(req.query) || 'lat と lon（または lng）を数値で指定してください';
+      return res.status(400).json({ code: 400, msg });
     }
     try {
       const payload = await jwaWbgt.fetchHourlyForecastByPoint(ll.lat, ll.lng);
@@ -407,7 +405,8 @@ function createApiApp() {
     }
     const ll = jwaWbgt.parseLatLonQuery(req.query);
     if (!ll) {
-      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+      const msg = latLonRejectMessage(req.query) || 'lat と lon（または lng）を数値で指定してください';
+      return res.status(400).json({ code: 400, msg });
     }
     try {
       const payload = await jwaWbgt.fetchDailyForecastByPoint(ll.lat, ll.lng);
@@ -501,7 +500,8 @@ function createApiApp() {
     applyCors(res, corsHeaders(req));
     const ll = jmaHeatAdvisory.parseLatLonQuery(req.query);
     if (!ll) {
-      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+      const msg = latLonRejectMessage(req.query) || 'lat と lon（または lng）を数値で指定してください';
+      return res.status(400).json({ code: 400, msg });
     }
     try {
       const payload = await jmaHeatAdvisory.fetchHeatAdvisoryForPoint(ll.lat, ll.lng);
@@ -516,7 +516,9 @@ function createApiApp() {
       if (e && e.code === 'geocode_failed') {
         return res.status(422).json({
           code: 422,
-          msg: e.message || '位置から都道府県を判定できませんでした',
+          msg:
+            e.message ||
+            '位置から都道府県を判定できませんでした。緯度・経度が日本国内の地点か、施設マスタの値を確認してください。',
         });
       }
       if (e && e.code === 'feed_failed') {
@@ -894,7 +896,8 @@ function createApiApp() {
     applyCors(res, corsHeaders(req));
     const ll = jwaWbgt.parseLatLonQuery(req.query);
     if (!ll) {
-      return res.status(400).json({ code: 400, msg: 'lat と lon（または lng）を数値で指定してください' });
+      const msg = latLonRejectMessage(req.query) || 'lat と lon（または lng）を数値で指定してください';
+      return res.status(400).json({ code: 400, msg });
     }
     try {
       const data = await fetchLocationConditions({ lat: ll.lat, lng: ll.lng, jwaWbgt });
@@ -1126,17 +1129,30 @@ function createApiApp() {
       return res.status(400).json({ code: 400, msg: 'deviceId は6〜24桁の数字です' });
     }
     const demoSet = new Set(getKnownDemoDeviceIds());
+    /** @type {boolean | null} */
     let buildicsHasLiveData = null;
+    /** @type {'found' | 'not_found' | 'api_error' | 'not_configured'} */
+    let buildicsStatus = 'not_configured';
     try {
       const db = getFirestore();
       const apiKey = await getBuildicsApiKeyForLedger(db, req.user.orgId);
       if (apiKey) {
         const probe = await probeBuildicsDeviceHasLiveData(apiKey, deviceId);
-        if (probe.status === 'ok') buildicsHasLiveData = true;
-        else if (probe.status === 'no_data') buildicsHasLiveData = false;
+        if (probe.status === 'ok') {
+          buildicsHasLiveData = true;
+          buildicsStatus = 'found';
+        } else if (probe.status === 'no_data') {
+          buildicsHasLiveData = false;
+          buildicsStatus = 'not_found';
+        } else {
+          buildicsHasLiveData = null;
+          buildicsStatus = 'api_error';
+        }
       }
     } catch (e) {
       console.error('devices/probe', e);
+      buildicsHasLiveData = null;
+      buildicsStatus = 'api_error';
     }
     const resolved = resolveDeviceIdSourceKind(deviceId, demoSet, { buildicsHasLiveData });
     res.json({
@@ -1145,7 +1161,9 @@ function createApiApp() {
       sourceKind: deviceIdSourceKindOnly(resolved),
       sourceReason: resolved.reason,
       buildicsHasLiveData,
-      buildicsProbed: buildicsHasLiveData !== null,
+      buildicsStatus,
+      buildicsProbed: buildicsStatus === 'found' || buildicsStatus === 'not_found',
+      buildicsProbeHours: PROBE_HISTORY_HOURS,
     });
   });
 

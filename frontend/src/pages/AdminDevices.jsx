@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AdminLayout from '../components/AdminLayout';
-import DeviceIdQrScannerModal from '../components/DeviceIdQrScannerModal';
 import {
   parseDeviceBulkCsv,
   DEVICE_BULK_CSV_TEMPLATE,
 } from '../lib/parseDeviceBulkCsv';
 import { adminApiFetch, clearAuthSession } from '../lib/authSession';
+import BuildicsProbeNotice from '../components/BuildicsProbeNotice';
+import DeviceIdText from '../components/DeviceIdText';
 import DeviceSourceBadge from '../components/DeviceSourceBadge';
+import {
+  DEVICE_ID_DISPLAY_EXAMPLE,
+  formatDeviceIdDisplay,
+  formatDeviceIdForMessage,
+  normalizeDeviceIdInput,
+} from '../lib/deviceIdFormat';
 import {
   buildDemoDeviceIdSet,
   getDeviceIdSourceKind,
@@ -40,14 +47,13 @@ export default function AdminDevices() {
   const [fileKey, setFileKey] = useState(0);
   const [bulkBatch, setBulkBatch] = useState(null);
   const [csvDragOver, setCsvDragOver] = useState(false);
-  const [qrOpen, setQrOpen] = useState(false);
   const [demoDeviceIds, setDemoDeviceIds] = useState([]);
   const [deviceProbe, setDeviceProbe] = useState(null);
   const [deviceProbing, setDeviceProbing] = useState(false);
 
   const demoIdSet = useMemo(() => buildDemoDeviceIdSet(demoDeviceIds), [demoDeviceIds]);
   const registerResolved = useMemo(() => {
-    const trimmed = String(deviceId || '').trim();
+    const trimmed = normalizeDeviceIdInput(deviceId);
     if (deviceProbe?.deviceId === trimmed && deviceProbe.sourceKind) {
       return {
         kind: deviceProbe.sourceKind,
@@ -67,14 +73,8 @@ export default function AdminDevices() {
   const registerHint = deviceSourceHint(registerResolved.reason, registerDeviceKind);
 
   useEffect(() => {
-    const trimmed = String(deviceId || '').trim();
+    const trimmed = normalizeDeviceIdInput(deviceId);
     if (!/^\d{6,24}$/.test(trimmed)) {
-      setDeviceProbe(null);
-      setDeviceProbing(false);
-      return undefined;
-    }
-    const local = resolveDeviceIdSourceKind(trimmed, demoIdSet);
-    if (local.kind === 'demo' || local.kind === 'unknown') {
       setDeviceProbe(null);
       setDeviceProbing(false);
       return undefined;
@@ -94,6 +94,7 @@ export default function AdminDevices() {
             sourceKind: j.sourceKind,
             sourceReason: j.sourceReason,
             buildicsHasLiveData: j.buildicsHasLiveData,
+            buildicsStatus: j.buildicsStatus,
             buildicsProbed: j.buildicsProbed,
           });
         } else {
@@ -198,7 +199,7 @@ export default function AdminDevices() {
 
   async function unlinkDevice(did) {
     const ok = window.confirm(
-      `デバイス ${did} の場所への紐付けを解除します。\n監視画面の地点別一覧には表示されなくなります。よろしいですか？`,
+      `デバイス ${formatDeviceIdForMessage(did)} の場所への紐付けを解除します。\n監視画面の地点別一覧には表示されなくなります。よろしいですか？`,
     );
     if (!ok) return;
     setErr('');
@@ -213,7 +214,7 @@ export default function AdminDevices() {
       setErr(j.msg || '紐付けの解除に失敗しました');
       return;
     }
-    setSuccessMsg(`デバイス ${did} の紐付けを解除しました`);
+    setSuccessMsg(`デバイス ${formatDeviceIdForMessage(did)} の紐付けを解除しました`);
     load();
   }
 
@@ -230,7 +231,7 @@ export default function AdminDevices() {
       setErr(j.msg || '再有効化に失敗しました');
       return;
     }
-    setSuccessMsg(`デバイス ${did} を再有効化しました`);
+    setSuccessMsg(`デバイス ${formatDeviceIdForMessage(did)} を再有効化しました`);
     load();
   }
 
@@ -245,7 +246,7 @@ export default function AdminDevices() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        deviceId,
+        deviceId: normalizeDeviceIdInput(deviceId),
         facilityId: Number(facilityId),
         label,
       }),
@@ -440,7 +441,7 @@ export default function AdminDevices() {
             しておきます。
           </li>
           <li>
-            下のフォーム（QR スキャン可）または CSV でデバイスを追加します。入力した ID が<strong>デモ用</strong>か
+            下のフォームまたは CSV でデバイスを追加します。入力した ID が<strong>デモ用</strong>か
             <strong>現場センサー（実機）</strong>か、種別バッジで確認できます。
           </li>
           <li>
@@ -479,46 +480,34 @@ export default function AdminDevices() {
       <div className="surface-card p-5 sm:p-6 mb-6">
         <h2 className="admin-card-section-title mb-1">1 件ずつ登録</h2>
         <p className="text-xs text-slate-500 mb-4">
-          デバイス ID は 6〜24 桁の数字です。カメラで QR を読み取ることもできます。表示名（ラベル）は任意です。
+          デバイス ID は 6〜24 桁の数字です。表示名（ラベル）は任意です。
         </p>
         <form onSubmit={addOne} className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="sm:col-span-2 lg:col-span-1">
+          <div className="sm:col-span-2 lg:col-span-2">
             <label htmlFor="adm-dev-id" className="block text-xs font-semibold text-slate-600 mb-1">
               デバイス ID
             </label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                id="adm-dev-id"
-                placeholder="例: 350976658106130"
-                className="input-field flex-1 min-w-0"
-                value={deviceId}
-                onChange={(e) => setDeviceId(e.target.value)}
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setErr('');
-                  setQrOpen(true);
-                }}
-                className="btn-secondary-outline shrink-0 px-3 py-2 text-xs font-semibold whitespace-nowrap"
-              >
-                QR スキャン
-              </button>
-            </div>
+            <input
+              id="adm-dev-id"
+              placeholder={`例: ${DEVICE_ID_DISPLAY_EXAMPLE}`}
+              className="input-field w-full font-mono tabular-nums tracking-tight"
+              inputMode="numeric"
+              value={formatDeviceIdDisplay(deviceId)}
+              onChange={(e) => setDeviceId(normalizeDeviceIdInput(e.target.value))}
+              autoComplete="off"
+              spellCheck={false}
+            />
             {registerDeviceKind !== 'unknown' ? (
               <div className="mt-2 flex flex-col gap-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <DeviceSourceBadge kind={registerDeviceKind} />
-                  {deviceProbing ? (
-                    <span className="text-[11px] text-slate-500">BUILDICS 照会中…</span>
-                  ) : null}
                 </div>
                 {registerHint ? (
                   <p className="text-[11px] text-slate-600 leading-snug">{registerHint}</p>
                 ) : null}
               </div>
             ) : null}
+            <BuildicsProbeNotice deviceId={deviceId} probing={deviceProbing} probe={deviceProbe} />
           </div>
           <div>
             <label htmlFor="adm-fac" className="block text-xs font-semibold text-slate-600 mb-1">
@@ -852,7 +841,9 @@ export default function AdminDevices() {
                         {csvParsed.items.slice(0, BULK_PREVIEW_ROWS).map((row, idx) => (
                           <tr key={`${row.deviceId}-${idx}`} className="border-t border-slate-100">
                             <td className="p-2 text-slate-500">{idx + 1}</td>
-                            <td className="p-2 font-mono text-slate-800">{row.deviceId}</td>
+                            <td className="p-2">
+                              <DeviceIdText deviceId={row.deviceId} className="text-slate-800 text-[11px]" />
+                            </td>
                             <td className="p-2">
                               <DeviceSourceBadge kind={getDeviceIdSourceKind(row.deviceId, demoIdSet)} />
                             </td>
@@ -952,7 +943,9 @@ export default function AdminDevices() {
               ) : (
                 items.map((row) => (
                   <tr key={row.deviceId} className="border-t border-slate-100 hover:bg-slate-50/80">
-                    <td className="p-2.5 font-mono text-xs align-top">{row.deviceId}</td>
+                    <td className="p-2.5 text-xs align-top">
+                      <DeviceIdText deviceId={row.deviceId} />
+                    </td>
                     <td className="p-2.5 align-top">
                       <DeviceSourceBadge
                         kind={
@@ -1041,7 +1034,7 @@ export default function AdminDevices() {
                               relinkFacilityPickRef.current[row.deviceId] ??
                               String(facilities[0]?.facilityId ?? '')
                             }
-                            aria-label={`${row.deviceId} の再有効化先`}
+                            aria-label={`${formatDeviceIdForMessage(row.deviceId)} の再有効化先`}
                             onChange={(e) => {
                               relinkFacilityPickRef.current[row.deviceId] = e.target.value;
                             }}
@@ -1096,15 +1089,6 @@ export default function AdminDevices() {
           </Link>
         </div>
       </div>
-      <DeviceIdQrScannerModal
-        open={qrOpen}
-        onClose={() => setQrOpen(false)}
-        onDecoded={(id) => {
-          setDeviceId(id);
-          setErr('');
-          queueMicrotask(() => document.getElementById('adm-dev-id')?.focus());
-        }}
-      />
     </AdminLayout>
   );
 }

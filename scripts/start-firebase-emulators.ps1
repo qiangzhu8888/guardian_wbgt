@@ -9,7 +9,8 @@
 param(
   [ValidateSet("ApiOnly", "Full")]
   [string] $Mode = "ApiOnly",
-  [switch] $BuildFrontend
+  [switch] $BuildFrontend,
+  [switch] $Force
 )
 
 Set-StrictMode -Version Latest
@@ -17,8 +18,33 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $firebaseJson = Join-Path $repoRoot "firebase.json"
+. (Join-Path $PSScriptRoot "firebase-emulator-ports.ps1")
+
 if (-not (Test-Path -LiteralPath $firebaseJson)) {
   throw "firebase.json not found: $firebaseJson"
+}
+
+$portMap = Get-FirebaseEmulatorPortMap -FirebaseJsonPath $firebaseJson
+$inUse = @(Test-FirebaseEmulatorPortsInUse -PortMap $portMap)
+if ($inUse.Count -gt 0) {
+  $uiPort = $portMap.Ui
+  $fnPort = $portMap.Functions
+  if ($Force) {
+    Write-Host "[start-firebase-emulators] Stopping existing emulator (-Force)..." -ForegroundColor Yellow
+    & (Join-Path $PSScriptRoot "stop-firebase-emulators.ps1")
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to stop existing emulator. Run .\scripts\stop-firebase-emulators.ps1 manually."
+    }
+  }
+  else {
+    Write-Host "[start-firebase-emulators] Emulator ports already in use (likely already running)." -ForegroundColor Yellow
+    Write-Host ('  Functions: http://127.0.0.1:{0}/' -f $fnPort) -ForegroundColor DarkGray
+    Write-Host ('  Emulator UI: http://127.0.0.1:{0}/' -f $uiPort) -ForegroundColor DarkGray
+    Write-Host '  Run seed without restarting: .\scripts\seed-admin-emulator.ps1' -ForegroundColor Green
+    Write-Host '  To restart emulators: .\scripts\stop-firebase-emulators.ps1 then run this script again.' -ForegroundColor DarkGray
+    Write-Host '  Or: .\scripts\start-firebase-emulators.ps1 -Force' -ForegroundColor DarkGray
+    exit 0
+  }
 }
 
 $firebaseCmd = Get-Command firebase -ErrorAction SilentlyContinue

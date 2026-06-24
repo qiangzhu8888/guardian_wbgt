@@ -31,10 +31,6 @@ vi.mock('../lib/authSession', () => ({
   requestAdminLogout: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../components/DeviceIdQrScannerModal', () => ({
-  default: () => null,
-}));
-
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';

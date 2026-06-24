@@ -14,6 +14,7 @@ describe('jwaWbgtClient', () => {
   test('parseLatLonQuery accepts lon alias', () => {
     expect(parseLatLonQuery({ lat: '35.68', lon: '139.76' })).toEqual({ lat: 35.68, lng: 139.76 });
     expect(parseLatLonQuery({ lat: 1, lng: 2 })).toEqual({ lat: 1, lng: 2 });
+    expect(parseLatLonQuery({ lat: 0, lon: 0 })).toBeNull();
     expect(parseLatLonQuery({ lat: 'x', lng: 1 })).toBeNull();
     expect(parseLatLonQuery({ lat: 200, lng: 1 })).toBeNull();
   });

@@ -1,5 +1,7 @@
 'use strict';
 
+const { isUsableLatLng } = require('./geoLatLng');
+
 /**
  * 日本気象協会（JWA）暑さ指数（WBGT）API クライアント
  * @see リポジトリ直下 SKILL.md（wbgt-jwa-api）
@@ -49,8 +51,7 @@ function isJwaConfigured() {
 function parseLatLonQuery(q) {
   const lat = Number(q.lat);
   const lng = Number(q.lon != null ? q.lon : q.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (!isUsableLatLng(lat, lng)) return null;
   return { lat, lng };
 }
 

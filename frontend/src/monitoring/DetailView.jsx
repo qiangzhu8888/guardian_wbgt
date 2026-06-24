@@ -9,7 +9,10 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
+import DeviceIdText from '../components/DeviceIdText';
+import { formatFacilityAmbientLine } from '../lib/facilityAmbientDisplay';
 import { getWBGTLevel } from '../lib/wbgt';
+import BatteryLevelIndicator from './BatteryLevelIndicator.jsx';
 import { buildDemoWbgtTrendForDetail } from '../lib/demoWbgtSeries';
 import { getLevelStyle, getWbgtColor } from './levelStyles';
 import { LevelBadge, LiveBadge, MockBadge } from './MonitoringBadges.jsx';
@@ -176,7 +179,15 @@ export function DetailView({
         </div>
         <div className="mt-3 text-center">
           <p className="text-xs text-gray-400 dark:text-slate-500">
-            {facility.weatherIcon} 天気：{facility.weather}　
+            {facility.isMock ? (
+              <>
+                {facility.weatherIcon} 天気：{facility.weather}　
+              </>
+            ) : (
+              <>
+                {formatFacilityAmbientLine(facility)}　
+              </>
+            )}
             最終更新：{facility.updated}　
             {!facility.isMock && (
               <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
@@ -391,13 +402,26 @@ export function DetailView({
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-3">
               <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">デバイスID</p>
-              <p className="text-sm font-mono text-gray-700 dark:text-slate-200 break-all">{facility.deviceId}</p>
+              <p className="text-sm text-gray-700 dark:text-slate-200">
+                <DeviceIdText deviceId={facility.deviceId} className="text-sm break-all" />
+              </p>
             </div>
             <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-3">
               <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">データ取得時刻</p>
               <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">{facility.updated}</p>
             </div>
           </div>
+          {Number.isFinite(Number(facility.batteryPercent)) ||
+          Number.isFinite(Number(facility.voltage)) ? (
+            <BatteryLevelIndicator
+              voltage={facility.voltage}
+              batteryPercent={facility.batteryPercent}
+              className="mt-3"
+              dimmed={facility.level === '通信異常'}
+              cached={Boolean(facility.batteryCached || facility.voltageCached)}
+              source={facility.batterySource}
+            />
+          ) : null}
           <div className="mt-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-800/60 p-3">
             <p className="text-xs text-emerald-800 dark:text-emerald-200">
               💡 WBGT は <strong>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { roundCoordForForm, parseDraftLatLng } from './geoFormat';
+import { roundCoordForForm, parseDraftLatLng, isUsableFacilityLatLng } from './geoFormat';
 
 describe('roundCoordForForm', () => {
   it('rounds to 6 decimal places', () => {
@@ -25,5 +25,17 @@ describe('parseDraftLatLng', () => {
       lat: 35.6812,
       lng: 139.7671,
     });
+  });
+});
+
+describe('isUsableFacilityLatLng', () => {
+  it('rejects unset 0,0', () => {
+    expect(isUsableFacilityLatLng(0, 0)).toBe(false);
+  });
+  it('accepts Tokyo coordinates', () => {
+    expect(isUsableFacilityLatLng(35.68, 139.76)).toBe(true);
+  });
+  it('rejects non-finite', () => {
+    expect(isUsableFacilityLatLng(NaN, 139)).toBe(false);
   });
 });
