@@ -11,7 +11,7 @@
  */
 export function buildQueryPlan(mappings, nowMs, historyHours, chunkSize) {
   if (!mappings?.length) {
-    return { chunks: [], uniqueDeviceIds: [] };
+    return { chunks: [], latestChunks: [], uniqueDeviceIds: [] };
   }
   const seen = new Set();
   const uniqueDeviceIds = [];
@@ -29,5 +29,22 @@ export function buildQueryPlan(mappings, nowMs, historyHours, chunkSize) {
   for (let i = 0; i < flat.length; i += size) {
     chunks.push(flat.slice(i, i + size));
   }
-  return { chunks, uniqueDeviceIds };
+  const latestChunks = buildLatestSnapshotChunks(uniqueDeviceIds, chunkSize);
+  return { chunks, latestChunks, uniqueDeviceIds };
+}
+
+/**
+ * 時刻範囲なしの最新スナップショット照会（latestRawData にハートビート batt が載ることが多い）
+ * @param {string[]} uniqueDeviceIds
+ * @param {number} chunkSize
+ * @returns {Array<Array<{ deviceId: string }>>}
+ */
+export function buildLatestSnapshotChunks(uniqueDeviceIds, chunkSize) {
+  if (!uniqueDeviceIds?.length) return [];
+  const chunks = [];
+  const size = Math.max(1, chunkSize);
+  for (let i = 0; i < uniqueDeviceIds.length; i += size) {
+    chunks.push(uniqueDeviceIds.slice(i, i + size).map((deviceId) => ({ deviceId })));
+  }
+  return chunks;
 }

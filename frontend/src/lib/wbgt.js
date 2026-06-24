@@ -9,6 +9,10 @@
  *   WBGT(屋内): 環境省・日本スポーツ協会の推定式を簡略化
  */
 
+import { parseBuildicsMeasurements, parseBuildicsDeviceEntry } from './buildicsMeasurements.js';
+
+export { parseBuildicsDeviceEntry, formatVoltageVolts } from './buildicsMeasurements.js';
+
 /**
  * 湿球温度を気温・湿度から推定（Stull 2011）
  * @param {number} T  - 乾球温度 [℃]
@@ -65,17 +69,15 @@ export const WBGT_ENV_GUIDELINES = Object.freeze([
 ]);
 
 /**
- * BUILDICSの dataValue 文字列から温度・湿度を取得
- * dataValue 形式: "温度,湿度"（例: "25.5,60.2"）
+ * BUILDICSの dataValue 文字列から温度・湿度（および typeUnit に V/v があれば電圧）を取得
  * @param {string} dataValue
- * @returns {{ temp: number, humidity: number } | null}
+ * @param {string} [typeUnit] BUILDICS typeUnit（例: "℃,%,V" または "℃,%,mV"）
+ * @param {unknown} [latestRawData] BUILDICS latestRawData（alive JSON 等）
+ * @returns {{ temp: number, humidity: number, voltage?: number } | null}
  */
-export function parseDataValue(dataValue) {
-  if (!dataValue) return null;
-  const parts = dataValue.split(',');
-  if (parts.length < 2) return null;
-  const temp = parseFloat(parts[0]);
-  const humidity = parseFloat(parts[1]);
-  if (isNaN(temp) || isNaN(humidity)) return null;
-  return { temp, humidity };
+export function parseDataValue(dataValue, typeUnit, latestRawData) {
+  if (latestRawData != null && String(latestRawData).trim() !== '') {
+    return parseBuildicsDeviceEntry({ dataValue, typeUnit, latestRawData }, latestRawData);
+  }
+  return parseBuildicsMeasurements(dataValue, typeUnit);
 }

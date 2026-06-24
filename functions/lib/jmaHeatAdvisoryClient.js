@@ -1,5 +1,7 @@
 'use strict';
 
+const { isUsableLatLng } = require('./geoLatLng');
+
 /**
  * 気象庁「熱中症警戒アラート」（データ種別 VPFT50）の Atom フィード参照
  * @see https://www.data.jma.go.jp/developer/xml/feed/extra.xml
@@ -70,8 +72,7 @@ const PREF_NAME_BY_CODE = Object.freeze({
 function parseLatLonQuery(q) {
   const lat = Number(q.lat);
   const lng = Number(q.lon != null ? q.lon : q.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  if (!isUsableLatLng(lat, lng)) return null;
   return { lat, lng };
 }
 

@@ -23,6 +23,7 @@ describe('wbgtSensorEvaluate', () => {
 
   it('parseDataValue', () => {
     expect(parseDataValue('30,70')).toEqual({ temp: 30, humidity: 70 });
+    expect(parseDataValue('30,70,4.0', '℃,%,v')).toEqual({ temp: 30, humidity: 70, voltage: 4 });
     expect(parseDataValue(null)).toBe(null);
   });
 });

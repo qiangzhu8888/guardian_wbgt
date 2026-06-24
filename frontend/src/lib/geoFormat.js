@@ -19,3 +19,18 @@ export function parseDraftLatLng(draftLat, draftLng) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { lat, lng };
 }
+
+/**
+ * 施設の緯度経度として API 呼び出しに使えるか（未設定の 0,0 等を除外）
+ * @param {unknown} lat
+ * @param {unknown} lng
+ * @returns {boolean}
+ */
+export function isUsableFacilityLatLng(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return false;
+  if (la < -90 || la > 90 || ln < -180 || ln > 180) return false;
+  if (Math.abs(la) < 1e-9 && Math.abs(ln) < 1e-9) return false;
+  return true;
+}

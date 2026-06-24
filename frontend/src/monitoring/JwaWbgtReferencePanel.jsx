@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchJwaHourlyForecast } from '../lib/jwaWbgtApi';
+import { describeFacilityCoordsIssue, formatPublicApiError } from '../lib/geoReferenceMessages';
+import GeoReferenceNotice from './GeoReferenceNotice.jsx';
 import { LevelBadge } from './MonitoringBadges.jsx';
 
 /**
@@ -7,16 +9,16 @@ import { LevelBadge } from './MonitoringBadges.jsx';
  * @param {{ lat?: number, lng?: number }} props
  */
 export function JwaWbgtReferencePanel({ lat, lng }) {
-  const [state, setState] = useState({ phase: 'idle', payload: null, err: null });
+  const coordsIssue = useMemo(() => describeFacilityCoordsIssue(lat, lng), [lat, lng]);
+  const [state, setState] = useState({ phase: 'idle', payload: null, err: null, status: null });
 
   useEffect(() => {
-    const hasLL = Number.isFinite(lat) && Number.isFinite(lng);
-    if (!hasLL) {
-      setState({ phase: 'no_coords', payload: null, err: null });
+    if (coordsIssue.kind !== 'ok') {
+      setState({ phase: 'no_coords', payload: null, err: null, status: null });
       return;
     }
     let cancelled = false;
-    setState({ phase: 'loading', payload: null, err: null });
+    setState({ phase: 'loading', payload: null, err: null, status: null });
     (async () => {
       const r = await fetchJwaHourlyForecast(lat, lng);
       if (cancelled) return;
@@ -24,18 +26,28 @@ export function JwaWbgtReferencePanel({ lat, lng }) {
         setState({
           phase: r.status === 503 ? 'unconfigured' : 'error',
           payload: null,
-          err: r.msg,
+          err: formatPublicApiError(r.status, r.msg, 'jwa'),
+          status: r.status,
         });
         return;
       }
-      setState({ phase: 'ok', payload: r.json, err: null });
+      setState({ phase: 'ok', payload: r.json, err: null, status: null });
     })();
     return () => {
       cancelled = true;
     };
-  }, [lat, lng]);
+  }, [lat, lng, coordsIssue.kind]);
 
-  if (state.phase === 'no_coords' || state.phase === 'idle') return null;
+  if (state.phase === 'no_coords' || state.phase === 'idle') {
+    if (coordsIssue.kind === 'ok') return null;
+    return (
+      <GeoReferenceNotice
+        variant="warn"
+        title={coordsIssue.title}
+        message={coordsIssue.message}
+      />
+    );
+  }
 
   if (state.phase === 'loading') {
     return (
@@ -46,14 +58,24 @@ export function JwaWbgtReferencePanel({ lat, lng }) {
   }
 
   if (state.phase === 'unconfigured') {
-    return null;
+    return (
+      <GeoReferenceNotice
+        variant="warn"
+        title="JWA WBGT 予測 API が未設定"
+        message={state.err || formatPublicApiError(503, '', 'jwa')}
+        statusCode={503}
+      />
+    );
   }
 
   if (state.phase === 'error') {
     return (
-      <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/90 dark:bg-amber-950/30 px-4 py-3 text-xs text-amber-900 dark:text-amber-200">
-        参考 WBGT（JWA）の取得に失敗しました。{state.err ? `（${state.err}）` : null}
-      </div>
+      <GeoReferenceNotice
+        variant="error"
+        title="参考 WBGT（JWA）の取得に失敗"
+        message={state.err || '不明なエラー'}
+        statusCode={state.status}
+      />
     );
   }
 

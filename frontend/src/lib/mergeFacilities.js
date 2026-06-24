@@ -16,7 +16,23 @@ export function mergeFacilities(sensorData, mockFacilities, deviceMappings) {
       return { ...f, ...(mockJwaPreview ? { mockJwaPreview } : {}) };
     }
     if (live.status === 'stale') {
-      return { ...f, level: '通信異常', isMock: false, isLive: true };
+      return {
+        ...f,
+        level: '通信異常',
+        isMock: false,
+        isLive: true,
+        temp: live.temp,
+        humidity: live.humidity,
+        voltage: live.voltage ?? null,
+        batteryPercent: live.batteryPercent ?? null,
+        batteryCached: Boolean(live.batteryCached),
+        batterySource: live.batterySource ?? null,
+        voltageCached: Boolean(live.batteryCached),
+        updated: live.updatedStr,
+        wbgt: live.wbgt,
+        deviceId: deviceMappings.find((d) => d.facilityId === f.id)?.deviceId,
+        history: live.history || [],
+      };
     }
     return {
       ...f,
@@ -24,6 +40,11 @@ export function mergeFacilities(sensorData, mockFacilities, deviceMappings) {
       level: live.level,
       temp: live.temp,
       humidity: live.humidity,
+      voltage: live.voltage ?? null,
+      batteryPercent: live.batteryPercent ?? null,
+      batteryCached: Boolean(live.batteryCached),
+      batterySource: live.batterySource ?? null,
+      voltageCached: Boolean(live.batteryCached),
       updated: live.updatedStr,
       isMock: false,
       isLive: true,

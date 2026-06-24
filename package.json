@@ -6,6 +6,7 @@
     "seed:admin": "npm run seed:admin --prefix functions",
     "secrets:set-bootstrap": "npm run secrets:set-bootstrap --prefix functions",
     "local:emulators": "powershell -ExecutionPolicy Bypass -File scripts/start-firebase-emulators.ps1",
+    "local:emulators:stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-firebase-emulators.ps1",
     "local:dev": "powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend-dev.ps1",
     "local:dev:all": "powershell -ExecutionPolicy Bypass -File scripts/start-local-frontend-dev.ps1 -LaunchEmulators",
     "deploy:functions": "powershell -ExecutionPolicy Bypass -File scripts/deploy-functions.ps1",

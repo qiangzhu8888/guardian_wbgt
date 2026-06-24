@@ -25,8 +25,23 @@ describe('wbgt', () => {
 
   it('parseDataValue', () => {
     expect(parseDataValue('25.5,60.2')).toEqual({ temp: 25.5, humidity: 60.2 });
+    expect(parseDataValue('25.5,60.2,3.7', '℃,%,V')).toEqual({
+      temp: 25.5,
+      humidity: 60.2,
+      voltage: 3.7,
+    });
     expect(parseDataValue('')).toBe(null);
     expect(parseDataValue('x')).toBe(null);
+  });
+
+  it('parseDataValue with latestRawData batt', () => {
+    const raw =
+      '{"msg":"alive","batt":4007,"temp":24.26,"hum":62.29}';
+    expect(parseDataValue('24.26,62.29', '℃,%', raw)).toEqual({
+      temp: 24.26,
+      humidity: 62.29,
+      voltage: 4.007,
+    });
   });
 
   it('calculateWBGT returns finite number', () => {

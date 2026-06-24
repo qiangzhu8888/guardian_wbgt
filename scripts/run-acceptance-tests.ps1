@@ -128,6 +128,7 @@ if ($runTestsDir) {
   Write-Host '[acceptance] tests: optional npm scripts' -ForegroundColor Cyan
   Push-Location $testsDir
   try {
+    $env:CI = '1'
     & npm run test:functional --if-present
     if ($LASTEXITCODE -ne 0) { throw 'tests: test:functional failed' }
     & npm run test:e2e --if-present

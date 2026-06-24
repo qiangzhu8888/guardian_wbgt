@@ -7,6 +7,7 @@ import MobileMonitorQrBlock from './components/MobileMonitorQrBlock';
 import { APP_DISPLAY_NAME, DEFAULT_APP_LOGO_URL, PRODUCTION_COMPANY_NAME } from './lib/appBranding';
 import { PRODUCT_LANDING_PATH } from './lib/productLandingCta';
 import { clampEffectivePollingIntervalMs } from './lib/orgPollingSettings';
+import { isDemoOnlyPublicConfig } from './lib/publicConfigDemo';
 import { DashboardView } from './monitoring/DashboardView';
 import { DetailView } from './monitoring/DetailView';
 
@@ -15,11 +16,13 @@ export default function HeatstrokeMonitoringDemo({ config, appVersion = '', orgS
   const mockFacilities = config?.mockFacilities || [];
 
   const deviceMappings = config?.deviceMappings || [];
+  const demoOnlyConfig = isDemoOnlyPublicConfig(mockFacilities);
+  const effectiveDeviceMappings = demoOnlyConfig ? [] : deviceMappings;
   const polling = config?.polling || {};
   const intervalMs = clampEffectivePollingIntervalMs(polling.intervalMs ?? 60000);
 
   const { sensorData, loading, error, lastFetched, refresh } = useBuildicsData(
-    deviceMappings,
+    effectiveDeviceMappings,
     intervalMs,
     polling,
     orgSlug,

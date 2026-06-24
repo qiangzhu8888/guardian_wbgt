@@ -182,6 +182,10 @@ export default function AdminFacilities() {
       setErr('先に住所を入力してください');
       return;
     }
+    if (q.length < 3) {
+      setErr('住所は3文字以上入力してください（例: 東京都町田市）');
+      return;
+    }
     setErr('');
     const res = await adminApiFetch(`/api/admin/geocode?${new URLSearchParams({ q })}`);
     const j = await res.json().catch(() => ({}));
